@@ -8,7 +8,7 @@ import { useAccount, useBalance } from 'wagmi';
 import '@rainbow-me/rainbowkit/styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TokenCard from './TokenCard';
-import { formatNumber, getMintingCostColor } from './components/shared';
+import { getMintingCostColor } from './components/shared';
 import { usePulseXTokenData } from './components/usePulseXTokenData';
 import { testPulseXAPI } from './components/debugPulseX';
 import { getMockTokenData } from './components/mockPriceData';

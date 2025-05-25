@@ -1,5 +1,4 @@
 // Shared UI components and helpers for PulseChain Token Dashboard
-import React from 'react';
 
 export function Spinner() {
   return <span className="inline-block w-4 h-4 border-2 border-t-2 border-gray-300 border-t-blue-500 rounded-full animate-spin align-middle mr-1" />;

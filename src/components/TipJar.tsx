@@ -5,7 +5,7 @@ import { useAccount, useSendTransaction } from 'wagmi';
 const TIP_JAR_ADDRESS = '0x3eC13D6BB18dB629941399EE12b5b3a1Ea281De6';
 
 export default function TipJar() {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
   const [amount, setAmount] = useState('0.01');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
