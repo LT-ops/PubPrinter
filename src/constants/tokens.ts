@@ -1,0 +1,61 @@
+const ehoneehAbi = [
+  {"name":"name","type":"function","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"payable":null,"constant":null,"selector":"0x06fdde03","signature":"name()","stateMutability":"view"},
+  {"name":"approve","type":"function","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"payable":null,"constant":null,"selector":"0x095ea7b3","signature":"approve(address,uint256)","stateMutability":"nonpayable"},
+  {"name":"ha","type":"function","inputs":[],"outputs":[{"name":"","type":"address","internalType":"address"}],"payable":null,"constant":null,"selector":"0x0a504439","signature":"ha()","stateMutability":"view"},
+  {"name":"totalSupply","type":"function","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"payable":null,"constant":null,"selector":"0x18160ddd","signature":"totalSupply()","stateMutability":"view"},
+  {"name":"Creator","type":"function","inputs":[],"outputs":[{"name":"","type":"address","internalType":"address"}],"payable":null,"constant":null,"selector":"0x18bee97e","signature":"Creator()","stateMutability":"view"},
+  {"name":"transferFrom","type":"function","inputs":[{"name":"sender","type":"address","internalType":"address"},{"name":"recipient","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"payable":null,"constant":null,"selector":"0x23b872dd","signature":"transferFrom(address,address,uint256)","stateMutability":"nonpayable"},
+  {"name":"decimals","type":"function","inputs":[],"outputs":[{"name":"","type":"uint8","internalType":"uint8"}],"payable":null,"constant":null,"selector":"0x313ce567","signature":"decimals()","stateMutability":"view"},
+  {"name":"Mint","type":"function","inputs":[],"outputs":[],"payable":null,"constant":null,"selector":"0x34c73884","signature":"Mint()","stateMutability":"nonpayable"},
+  {"name":"burn","type":"function","inputs":[{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[],"payable":null,"constant":null,"selector":"0x42966c68","signature":"burn(uint256)","stateMutability":"nonpayable"},
+  {"name":"Multiplier","type":"function","inputs":[{"name":"multiplyAmount","type":"uint256"}],"outputs":[],"payable":false,"constant":false,"selector":"0x5677abcc","signature":"Multiplier(uint256)","stateMutability":"nonpayable"},
+  {"name":"balanceOf","type":"function","inputs":[{"name":"account","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"payable":null,"constant":null,"selector":"0x70a08231","signature":"balanceOf(address)","stateMutability":"view"},
+  {"name":"burnFrom","type":"function","inputs":[{"name":"account","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[],"payable":null,"constant":null,"selector":"0x79cc6790","signature":"burnFrom(address,uint256)","stateMutability":"nonpayable"},
+  {"name":"Claim","type":"function","inputs":[{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"payable":null,"constant":null,"selector":"0x7bb2b3c1","signature":"Claim(uint256)","stateMutability":"nonpayable"},
+  {"name":"symbol","type":"function","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"payable":null,"constant":null,"selector":"0x95d89b41","signature":"symbol()","stateMutability":"view"},
+  {"name":"mint","type":"function","inputs":[{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"payable":false,"constant":false,"selector":"0xa0712d68","signature":"mint(uint256)","stateMutability":"nonpayable"},
+  {"name":"transfer","type":"function","inputs":[{"name":"recipient","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"payable":null,"constant":null,"selector":"0xa9059cbb","signature":"transfer(address,uint256)","stateMutability":"nonpayable"},
+  {"name":"Parent","type":"function","inputs":[],"outputs":[{"name":"","type":"address","internalType":"contract IParent"}],"payable":null,"constant":null,"selector":"0xd3c8dd69","signature":"Parent()","stateMutability":"view"},
+  {"name":"allowance","type":"function","inputs":[{"name":"owner","type":"address","internalType":"address"},{"name":"spender","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"payable":null,"constant":null,"selector":"0xdd62ed3e","signature":"allowance(address,address)","stateMutability":"view"},
+  {"name":"withdraw","type":"function","inputs":[{"name":"_token","type":"address","internalType":"address"},{"name":"_amount","type":"uint256","internalType":"uint256"}],"outputs":[],"payable":null,"constant":null,"selector":"0xf3fef3a3","signature":"withdraw(address,uint256)","stateMutability":"nonpayable"}
+];
+
+// Patch ABI for ethers.js v6 compatibility (replace null with undefined for payable/constant)
+const patchAbi = (abi: any[]): any[] =>
+  abi.map((item: any) => {
+    const patched = { ...item };
+    if (patched.payable === null) patched.payable = undefined;
+    if (patched.constant === null) patched.constant = undefined;
+    return patched;
+  });
+
+export const TOKENS = {
+  A1A: {
+    address: '0x697fc467720B2a8e1b2F7F665d0e3f28793E65e8',
+    abi: patchAbi(ehoneehAbi),
+    symbol: 'A1A',
+    name: 'A1A',
+  },
+  B2B: {
+    address: '0x6d2dc71AFa00484C48bfF8160dbDdB7973c37A5E',
+    abi: patchAbi(ehoneehAbi),
+    symbol: 'B2B',
+    name: 'B2B',
+  },
+  EHONEEH: {
+    address: '0xa7b295c715713487877427589a93f93bc608d240',
+    abi: patchAbi(ehoneehAbi),
+    symbol: 'EOE', // Dexscreener symbol
+    name: 'EhOneEh',
+    mintStep: 1111, // FIXED: should be 1111, not 111111111
+    mintStepDecimals: 0, // step is integer
+  },
+  BEETWOBEE: {
+    address: '0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3',
+    abi: patchAbi(ehoneehAbi),
+    symbol: 'BTB', // Dexscreener symbol
+    name: 'BeeTwoBee',
+    mintStep: 420,
+    mintStepDecimals: 0,
+  },
+};
