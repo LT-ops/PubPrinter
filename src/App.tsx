@@ -138,7 +138,7 @@ function getMintingInfo(totalSupply: number | undefined, step: number, initialSu
   // Normal calculation logic
   const mintedAfterInitial = supplyInt - initialSupply;
   const currentStepNumber = Math.floor(mintedAfterInitial / step);
-  const totalIncrease = currentStepNumber * (isEOE ? 1 : 0);
+  const totalIncrease = currentStepNumber; // Both EOE and BTB increase by 1 per step
   const currentCost = baseCost + totalIncrease;
   const nextMintingStep = initialSupply + (currentStepNumber + 1) * step;
   const remainingAtCurrentCost = nextMintingStep - supplyInt;
