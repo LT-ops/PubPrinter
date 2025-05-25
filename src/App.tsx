@@ -9,10 +9,9 @@ import '@rainbow-me/rainbowkit/styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TokenCard from './TokenCard';
 import { getMintingCostColor } from './components/shared';
-import { usePulseXTokenData } from './components/usePulseXTokenData';
-import { testPulseXAPI } from './components/debugPulseX';
-import { getMockTokenData } from './components/mockPriceData';
 import TipJar from './components/TipJar';
+import { usePulseXTokenData } from './components/usePulseXTokenData';
+import { getMockTokenData } from './components/mockPriceData';
 
 // --- Chain and WalletConnect Setup ---
 const WALLETCONNECT_PROJECT_ID = 'YOUR_PROJECT_ID_HERE'; // <-- Replace with your actual WalletConnect project ID
@@ -114,10 +113,12 @@ interface MintingInfo {
 function getMintingInfo(totalSupply: number | undefined, step: number, initialSupply: number = 0): MintingInfo {
   // Ensure integer math for all calculations
   const supplyInt = typeof totalSupply === 'number' && !isNaN(totalSupply) ? Math.floor(Number(totalSupply)) : 0;
+  const isEOE = step === 1111;
+  const baseCost = 2; // Set base cost to 2 for both EOE and BTB as requested
   if (supplyInt === 0) {
     return {
-      currentCost: 0,
-      remainingAtCurrentCost: 0,
+      currentCost: baseCost,
+      remainingAtCurrentCost: initialSupply + step,
       nextMintingStep: initialSupply + step,
       debug: {
         totalSupply: 0,
@@ -125,41 +126,40 @@ function getMintingInfo(totalSupply: number | undefined, step: number, initialSu
         initialSupply,
         mintedAfterInitial: 0,
         currentStepNumber: 0,
-        initialBaseCost: 0,
+        initialBaseCost: baseCost,
         totalIncrease: 0,
-        currentCost: 0,
+        currentCost: baseCost,
         nextMintingStep: initialSupply + step,
-        remainingAtCurrentCost: 0,
-        tokenType: step === 1111 ? 'EOE' : 'BTB',
+        remainingAtCurrentCost: initialSupply + step,
+        tokenType: isEOE ? 'EOE' : 'BTB',
       },
     };
   }
-  const isEOE = step === 1111;
-  const baseCost = 2; // Set base cost to 2 for both EOE and BTB as requested
-  const mintedAfterInitial = Math.max(0, supplyInt - initialSupply);
-  const currentStep = supplyInt < initialSupply ? 0 : Math.floor(mintedAfterInitial / step);
-  const currentCost = baseCost + currentStep;
-  const nextMintingStep = initialSupply + (currentStep + 1) * step;
-  // Only allow integer tokens remaining at current cost
-  const remainingAtCurrentCost = supplyInt < nextMintingStep ? nextMintingStep - supplyInt : 0;
-  const debugInfo: MintingDebugInfo = {
-    totalSupply: supplyInt,
-    stepSize: step,
-    initialSupply,
-    mintedAfterInitial,
-    currentStepNumber: currentStep,
-    initialBaseCost: baseCost,
-    totalIncrease: currentStep,
-    currentCost,
-    nextMintingStep,
-    remainingAtCurrentCost,
-    tokenType: isEOE ? 'EOE' : 'BTB',
-  };
+  // Normal calculation logic
+  const mintedAfterInitial = supplyInt - initialSupply;
+  const currentStepNumber = Math.floor(mintedAfterInitial / step);
+  const totalIncrease = currentStepNumber * (isEOE ? 1 : 0);
+  const currentCost = baseCost + totalIncrease;
+  const nextMintingStep = initialSupply + (currentStepNumber + 1) * step;
+  const remainingAtCurrentCost = nextMintingStep - supplyInt;
+
   return {
     currentCost,
     remainingAtCurrentCost,
     nextMintingStep,
-    debug: debugInfo,
+    debug: {
+      totalSupply: supplyInt,
+      stepSize: step,
+      initialSupply,
+      mintedAfterInitial,
+      currentStepNumber,
+      initialBaseCost: baseCost,
+      totalIncrease,
+      currentCost,
+      nextMintingStep,
+      remainingAtCurrentCost,
+      tokenType: isEOE ? 'EOE' : 'BTB',
+    },
   };
 }
 
@@ -233,10 +233,8 @@ function checkMintingProfitability(
 
 // --- Mint Button & Modal ---
 // Handles approval, allowance, and minting for a token
-function MintButton({ token, label, parentToken, parentSymbol, disabled }: { token: any, label: string, parentToken: any, parentSymbol: string, disabled?: boolean }) {
+function MintButton({ token, tokenData, label, parentToken, parentSymbol, disabled }: { token: any, tokenData?: any, label: string, parentToken: any, parentSymbol: string, disabled?: boolean }) {
   const { address } = useAccount();
-  
-  // Use separate state variables to avoid cross-dependencies that cause infinite loops
   const [amount, setAmount] = useState('');
   const [showInput, setShowInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -245,7 +243,6 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
   const [allowance, setAllowance] = useState<bigint>(0n);
 
   // --- Parent token balance for user guidance ---
-  // Fix: Only pass 'token' to useBalance if address is defined and parentToken is not native (PLS)
   const isNative = !parentToken.address;
   const balanceArgs = address
     ? isNative
@@ -266,34 +263,28 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
     } catch {}
   }
 
-  // Step boundary warning logic
-  let mintingInfo: any = null;
+  // --- Minting info logic (always up-to-date and never 0 for EOE/BTB) ---
+  let mintingInfo: MintingInfo | null = null;
   if (token.symbol === 'EOE') {
-    // Use initial supply as fallback if totalSupply is empty or not loaded
-    const eoeSupply = token.totalSupply && !isNaN(parseFloat(token.totalSupply)) && token.totalSupply !== ''
-      ? parseFloat(token.totalSupply)
+    const eoeSupply = tokenData && tokenData.totalSupply && !isNaN(parseFloat(tokenData.totalSupply)) && tokenData.totalSupply !== ''
+      ? parseFloat(tokenData.totalSupply)
       : 1111;
-    mintingInfo = getMintingInfo(eoeSupply, TOKENS.EHONEEH.mintStep, 1111);
+    mintingInfo = getMintingInfo(eoeSupply, 1111, 1111);
   } else if (token.symbol === 'BTB') {
-    const btbSupply = token.totalSupply && !isNaN(parseFloat(token.totalSupply)) && token.totalSupply !== ''
-      ? parseFloat(token.totalSupply)
+    const btbSupply = tokenData && tokenData.totalSupply && !isNaN(parseFloat(tokenData.totalSupply)) && tokenData.totalSupply !== ''
+      ? parseFloat(tokenData.totalSupply)
       : 420;
-    mintingInfo = getMintingInfo(btbSupply, TOKENS.BEETWOBEE.mintStep, 420);
+    mintingInfo = getMintingInfo(btbSupply, 420, 420);
   }
 
   // --- Mint amount preview and warnings ---
-  // Completely avoid any validation during render to prevent infinite loops
   let amountInWei: bigint | undefined = undefined;
   const decimals = token.decimals ?? 18;
-  
-  // Only parse amount to Wei if it's potentially valid
-  // Do not set any state here to avoid re-render loops
   try {
     if (amount && amount !== '0' && amount !== '0.' && Number(amount) > 0) {
       amountInWei = ethers.parseUnits(amount, decimals);
     }
   } catch {
-    // Silently fail - we'll handle errors in the handlers
     amountInWei = undefined;
   }
 
@@ -312,28 +303,19 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
   const gasIsHigh = gasEstimate && gasEstimate > 1000000n;
 
   // --- Show gas warning if user is likely to fail ---
-  // Show if estimation fails, or if parent balance/allowance is insufficient
   let likelyToFail = false;
-  if (amountInWei && parentBalanceData?.value) {
-    // Calculate total cost using step cost
-    const stepCost = mintingInfo ? BigInt(mintingInfo.currentCost) : 1n;
+  if (amountInWei && parentBalanceData?.value && mintingInfo) {
+    const stepCost = BigInt(mintingInfo.currentCost);
     const requiredBalance = amountInWei * stepCost;
-
-    // Check balance for both ERC20 and native tokens
     if (parentBalanceData.value < requiredBalance) {
       likelyToFail = true;
     }
-
-    // For ERC20 tokens, also check allowance
     if (parentToken.address && allowance !== undefined && allowance < requiredBalance) {
       likelyToFail = true;
     }
   }
-  // Always show if estimation fails
   if (gasEstimationFailed) likelyToFail = true;
-  // Show if gas is very high
   if (gasIsHigh) likelyToFail = true;
-
   const gasWarning = likelyToFail
     ? gasEstimationFailed
       ? 'Gas estimation failed. This transaction may fail or be very expensive. This is often due to insufficient allowance, parent token balance, or contract minting rules.'
@@ -342,17 +324,11 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
         : null
     : null;
 
-  // Move step warning logic to be part of blur validation
-  // This prevents the effect from causing re-renders during typing
+  // Step warning logic
   const updateStepWarning = () => {
-    // Clear any existing warning
     setStepWarning(null);
-    
-    // Skip validation for empty input
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
-    
-    // Check for step boundary issues
-    if (mintingInfo && mintingInfo.remainingAtCurrentCost > 0 && Number(amount) > mintingInfo.remainingAtCurrentCost) {
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0 || !mintingInfo) return;
+    if (mintingInfo.remainingAtCurrentCost > 0 && Number(amount) > mintingInfo.remainingAtCurrentCost) {
       setStepWarning(`Warning: Minting more than the remaining at current cost (${mintingInfo.remainingAtCurrentCost}). This will cross a step boundary and may increase gas and cost per token.`);
     }
   };
@@ -360,10 +336,7 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
   // Approve parent token
   const { writeContract, isPending } = useWriteContract();
   const { isLoading: isTxLoading, isSuccess } = useWaitForTransactionReceipt({ hash: undefined });
-
-  useEffect(() => {
-    if (isSuccess) setApproved(true);
-  }, [isSuccess]);
+  useEffect(() => { if (isSuccess) setApproved(true); }, [isSuccess]);
 
   // Allowance check using useReadContract
   const { data: allowanceData } = useReadContract({
@@ -377,13 +350,10 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
   useEffect(() => {
     if (allowanceData !== undefined && amount && !isNaN(Number(amount)) && Number(amount) > 0) {
       setAllowance(allowanceData as bigint);
-      
       try {
-        // Convert amount to wei (considering decimals) before comparing with allowance
         const amountInWei = ethers.parseUnits(amount, decimals);
         setApproved(amountInWei <= (allowanceData as bigint));
       } catch (error) {
-        // If parsing fails (e.g., due to invalid decimals), don't approve
         setApproved(false);
       }
     } else {
@@ -393,37 +363,28 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
   }, [allowanceData, amount, decimals]);
 
   const handleMint = () => {
-    // Simply show the input dialog and clear any existing errors
     setShowInput(true);
     setError(null);
   };
-  
   const handleApprove = () => {
-    // Start fresh with no error
     setError(null);
-    
-    // Basic input validation
     if (!amount || amount.trim() === '') {
       setError('Please enter an amount');
       return;
     }
-    
-    // Validate numeric value
     const numValue = Number(amount);
     if (isNaN(numValue) || numValue <= 0) {
       setError('Amount must be greater than zero');
       return;
     }
-    
-    // For tokens with no decimals
-    if (decimals === 0) {
-      if (!Number.isInteger(numValue)) {
-        setError('This token only supports whole numbers');
-        return;
-      }
+    if (decimals === 0 && !Number.isInteger(numValue)) {
+      setError('This token only supports whole numbers');
+      return;
     }
-    
-    // Check decimal places
+    if (!/^[\d]*\.?[\d]*$/.test(amount) || isNaN(Number(amount))) {
+      setError('Invalid number format');
+      return;
+    }
     if (amount.includes('.')) {
       const parts = amount.split('.');
       if (parts[1] && parts[1].length > decimals) {
@@ -431,189 +392,78 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
         return;
       }
     }
-
-    // Check if user has enough balance to mint
+    setError(null);
+    updateStepWarning();
     if (amountInWei && mintingInfo) {
       const requiredBalance = amountInWei * BigInt(mintingInfo.currentCost);
       const requiredBalanceFormatted = ethers.formatUnits(requiredBalance, parentToken.decimals || 18);
-
-      // For non-native tokens (ERC20)
       if (parentToken.address && parentBalanceData?.value) {
         if (parentBalanceData.value < requiredBalance) {
           setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (${amount} tokens × ${mintingInfo.currentCost} ${parentSymbol}) but only have ${parentBalanceFormatted} ${parentSymbol}`);
           return;
         }
       } else if (!parentToken.address && parentBalanceData?.value) {
-        // For native token (PLS)
         if (parentBalanceData.value < requiredBalance) {
           setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (${amount} tokens × ${mintingInfo.currentCost} ${parentSymbol}) but only have ${parentBalanceFormatted} ${parentSymbol}`);
           return;
         }
       } else {
-        // If we can't verify the balance, don't allow the transaction
         setError(`Unable to verify ${parentSymbol} balance. Please try again.`);
         return;
       }
-    }
-    
-    try {
-      if (!amountInWei) throw new Error('Invalid amount');
-      writeContract({
-        address: token.address,
-        abi: token.abi,
-        functionName: 'mint',
-        args: [amountInWei],
-        chainId: 369,
-      });
-      setShowInput(false);
-    } catch (e: any) {
-      setError(e.message || 'Mint failed');
-    }
-  };
-  
-  // We've moved the input sanitization logic directly into the handleAmountChange function
-  // This prevents issues with state updates causing re-renders
-
-  // Removed unused validation function
-
-  // Handle validation directly in the input handler instead of using effects
-  // No useEffect for input sanitization - this eliminates the cause of infinite loops
-  
-  // Super simple implementation with no validation during typing
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Just set the raw input value without any validation
-    // This is the key to preventing re-render loops!
-    setAmount(e.target.value);
-    
-    // Clear any existing error
-    if (error) {
-      setError(null);
-    }
-  };
-  
-  // Only validate on blur for better UX
-  const handleAmountBlur = () => {
-    // Skip validation for empty input
-    if (!amount || amount.trim() === '') {
-      return;
-    }
-    
-    // Validate input when user stops typing
-    
-    // Check for zero values
-    if (amount === '0' || amount === '0.' || Number(amount) <= 0) {
-      setError('Amount must be greater than zero');
-      return;
-    }
-    
-    // For tokens with no decimals, ensure it's a whole number
-    if (decimals === 0 && !Number.isInteger(Number(amount))) {
-      setError('This token only supports whole numbers');
-      return;
-    }
-    
-    // Check for invalid characters
-    if (!/^\d*\.?\d*$/.test(amount) || isNaN(Number(amount))) {
-      setError('Invalid number format');
-      return;
-    }
-    
-    // Check decimal places
-    if (amount.includes('.')) {
-      const parts = amount.split('.');
-      if (parts[1] && parts[1].length > decimals) {
-        setError(`Maximum ${decimals} decimal places allowed`);
-        return;
+      try {
+        if (!amountInWei) throw new Error('Invalid amount');
+        writeContract({
+          address: token.address,
+          abi: token.abi,
+          functionName: 'mint',
+          args: [amountInWei],
+          chainId: 369,
+        });
+        setShowInput(false);
+      } catch (e: any) {
+        setError(e.message || 'Mint failed');
       }
     }
-    
-    // Everything is valid, clear any errors
-    setError(null);
-    
-    // Check for step warnings when validation is complete
-    updateStepWarning();
   };
-
-  // This function has been commented out since it's not currently used
-  // but may be useful for future functionality
-  // const calculateRequiredBalance = (inputAmount: string): { requiredBalance: bigint, formattedBalance: string } | null => {
-  //   if (!inputAmount || !mintingInfo || isNaN(Number(inputAmount))) return null;
-  //   try {
-  //     const amountBigInt = ethers.parseUnits(inputAmount, decimals);
-  //     const requiredBalance = amountBigInt * BigInt(mintingInfo.currentCost);
-  //     const formattedBalance = ethers.formatUnits(requiredBalance, parentToken.decimals || 18);
-  //     return { requiredBalance, formattedBalance };
-  //   } catch {
-  //     return null;
-  //   }
-  // };
-
-  // Show pending transaction warning
-  useEffect(() => {
-    if (isPending || isTxLoading) {
-      // showNotification('Transaction in progress. Please wait...', 'info');
-    }
-  }, [isPending, isTxLoading]);
+  useEffect(() => { if (isPending || isTxLoading) { /* show notification if needed */ } }, [isPending, isTxLoading]);
 
   return (
     <div className="mt-2">
       <button
         onClick={handleMint}
         disabled={disabled}
-        className={`w-full px-4 py-2 rounded text-white font-semibold transition-all ${
-          disabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
-        }`}
+        className={`w-full px-4 py-2 rounded text-white font-semibold transition-all ${disabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
       >
         {label}
       </button>
-
       {showInput && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-bold mb-4">{label}</h3>
-            
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Amount to mint
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount to mint</label>
                 <input
                   type="text"
                   value={amount}
-                  onChange={handleAmountChange}
-                  onBlur={handleAmountBlur}
+                  onChange={e => setAmount(e.target.value)}
+                  onBlur={updateStepWarning}
                   className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="Enter amount"
                   autoFocus
                 />
               </div>
-              
-              {error && (
-                <div className="text-red-500 text-sm">{error}</div>
-              )}
-
-              {stepWarning && (
-                <div className="text-yellow-600 text-sm bg-yellow-50 p-2 rounded">
-                  {stepWarning}
-                </div>
-              )}
-
-              {gasWarning && (
-                <div className="text-yellow-600 text-sm bg-yellow-50 p-2 rounded">
-                  {gasWarning}
-                </div>
-              )}
-
+              {error && <div className="text-red-500 text-sm">{error}</div>}
+              {stepWarning && <div className="text-yellow-600 text-sm bg-yellow-50 p-2 rounded">{stepWarning}</div>}
+              {gasWarning && <div className="text-yellow-600 text-sm bg-yellow-50 p-2 rounded">{gasWarning}</div>}
               <div className="bg-gray-50 p-2 rounded text-sm">
                 <div>Cost per token: {mintingInfo?.currentCost} {parentSymbol}</div>
                 {amount && !error && (
-                  <div>Total cost: {
-                    Number(amount) * (mintingInfo?.currentCost || 0)
-                  } {parentSymbol}</div>
+                  <div>Total cost: {Number(amount) * (mintingInfo?.currentCost || 0)} {parentSymbol}</div>
                 )}
               </div>
             </div>
-
             <div className="flex gap-2 mt-4">
               <button
                 onClick={() => setShowInput(false)}
@@ -801,7 +651,7 @@ function AppContent() {
     console.log('BTB Market Price:', btbMarketPrice);
     
     // Test the PulseX API directly to see if it works
-    testPulseXAPI();
+    // testPulseXAPI();
   }, [eoePulseX.data, eoePulseX.loading, btbPulseX.data, btbPulseX.loading]);
 
   const [darkMode, setDarkMode] = useState(() => {
@@ -821,21 +671,19 @@ function AppContent() {
   useEffect(() => {
     console.log('EOE Supply:', eoeSupply);
     console.log('BTB Supply:', btbSupply);
-    console.log('EOE Step Size:', TOKENS.EHONEEH.mintStep);
-    console.log('BTB Step Size:', TOKENS.BEETWOBEE.mintStep);
     if (eoeSupply >= 1111) {
       const eoeMintedAfter = eoeSupply - 1111;
       const eoeCurrentStep = Math.floor(eoeMintedAfter / 1111);
       console.log('EOE Minted After Initial:', eoeMintedAfter);
       console.log('EOE Current Step:', eoeCurrentStep);
-      console.log('EOE Expected Cost:', 6 + eoeCurrentStep);
+      console.log('EOE Expected Cost:', 2 + eoeCurrentStep);
     }
     if (btbSupply >= 420) {
       const btbMintedAfter = btbSupply - 420;
       const btbCurrentStep = Math.floor(btbMintedAfter / 420);
       console.log('BTB Minted After Initial:', btbMintedAfter);
       console.log('BTB Current Step:', btbCurrentStep);
-      console.log('BTB Expected Cost:', 5 + btbCurrentStep);
+      console.log('BTB Expected Cost:', 2 + btbCurrentStep);
     }
   }, [eoeSupply, btbSupply]);
 
@@ -922,7 +770,7 @@ function AppContent() {
                     );
                   })()}
                 </div>
-                <MintButton token={TOKENS.EHONEEH} label="Mint EOE" parentToken={TOKENS.A1A} parentSymbol="A1A" disabled={!address} />
+                <MintButton token={TOKENS.EHONEEH} tokenData={eoe} label="Mint EOE" parentToken={TOKENS.A1A} parentSymbol="A1A" disabled={!address} />
               </div>
               <div className="text-xs mt-2 text-gray-500">
                 Next price increase at total supply: <b>{eoeMintInfo.nextMintingStep}</b>
@@ -977,7 +825,7 @@ function AppContent() {
                     );
                   })()}
                 </div>
-                <MintButton token={TOKENS.BEETWOBEE} label="Mint BTB" parentToken={TOKENS.B2B} parentSymbol="B2B" disabled={!address} />
+                <MintButton token={TOKENS.BEETWOBEE} tokenData={btb} label="Mint BTB" parentToken={TOKENS.B2B} parentSymbol="B2B" disabled={!address} />
               </div>
               <div className="text-xs mt-2 text-gray-500">
                 Next price increase at total supply: <b>{btbMintInfo.nextMintingStep}</b>
