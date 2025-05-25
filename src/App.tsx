@@ -269,10 +269,15 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled }: { tok
   // Step boundary warning logic
   let mintingInfo: any = null;
   if (token.symbol === 'EOE') {
-    const eoeSupply = parseFloat(token.totalSupply || '0');
+    // Use initial supply as fallback if totalSupply is empty or not loaded
+    const eoeSupply = token.totalSupply && !isNaN(parseFloat(token.totalSupply)) && token.totalSupply !== ''
+      ? parseFloat(token.totalSupply)
+      : 1111;
     mintingInfo = getMintingInfo(eoeSupply, TOKENS.EHONEEH.mintStep, 1111);
   } else if (token.symbol === 'BTB') {
-    const btbSupply = parseFloat(token.totalSupply || '0');
+    const btbSupply = token.totalSupply && !isNaN(parseFloat(token.totalSupply)) && token.totalSupply !== ''
+      ? parseFloat(token.totalSupply)
+      : 420;
     mintingInfo = getMintingInfo(btbSupply, TOKENS.BEETWOBEE.mintStep, 420);
   }
 
