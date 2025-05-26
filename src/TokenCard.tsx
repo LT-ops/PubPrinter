@@ -1,20 +1,39 @@
 import React from 'react';
-import { TokenPriceChart } from './components/TokenPriceChart';
-import { Tooltip } from 'react-tooltip';
-import { Spinner, ErrorMsg } from './components/shared';
-import { usePulseXTokenHistory } from './components/usePulseXTokenHistory';
+import { MintButton } from './App'; // Use named import for MintButton
+import { TOKENS } from './constants/tokens';
+
+interface MintingInfo {
+  currentCost?: number;
+  remainingAtCurrentCost?: number;
+  nextMintingStep?: number;
+  profitability?: number;
+  debug?: any;
+}
 
 interface TokenCardProps {
   color: string;
   title: string;
-  token: any;
-  tokenData: { name: string; symbol: string; totalSupply: string; decimals: number };
-  marketData: any;
-  marketLoading: boolean;
-  marketError: string | null;
-  TokenBalance: React.FC<{ token: { address: string }, decimals: number }>;
-  mintingInfo?: React.ReactNode;
-  children?: React.ReactNode;
+  token: {
+    address: string;
+    symbol: string;
+    name: string;
+  };
+  tokenData: {
+    name: string;
+    symbol: string;
+    totalSupply: string;
+    decimals: number;
+  };
+  mintingInfo?: MintingInfo;
+  lastUpdated?: number;
+  marketData?: any; // <-- Add this prop for live price
+  debugInfo?: { marketData?: any; tokenData?: any }; // <-- Add debugInfo prop
+  loadingState?: 'loading' | 'error' | 'nodata' | 'ok'; // <-- Add loadingState prop
+}
+
+// Custom replacer for JSON.stringify to handle BigInt
+function jsonReplacer(_: string, value: any) {
+  return typeof value === 'bigint' ? value.toString() + 'n' : value;
 }
 
 const TokenCard: React.FC<TokenCardProps> = ({
@@ -22,256 +41,123 @@ const TokenCard: React.FC<TokenCardProps> = ({
   title,
   token,
   tokenData,
-  marketData,
-  marketLoading,
-  marketError,
-  TokenBalance,
   mintingInfo,
-  children,
+  lastUpdated,
+  marketData, // <-- Add this prop for live price
+  debugInfo, // <-- Add debugInfo prop
+  loadingState = 'ok', // <-- Add loadingState prop
 }) => {
-  const { data: priceHistory = [], loading: historyLoading } = usePulseXTokenHistory(token?.address || '', 7);
-  
-  const chartData = priceHistory.map(day => ({
-    timestamp: day.date,
-    price: Number(day.priceUSD)
-  })).reverse();
-
-  // Improved version to get price from marketData (PulseX or Dexscreener)
-  const getBestPriceUsd = (marketData: any): string | undefined => {
-    if (!marketData) {
-      console.log('No market data available for price calculation');
-      return undefined;
-    }
-
-    console.log('Market data received in TokenCard:', marketData);
-
-    // Simple debug check for all available properties
-    if (marketData) {
-      console.log('Available market data properties in TokenCard:', Object.keys(marketData));
-    }
-
-    // FIRST CHECK: Handle direct price fields which are most reliable
-    // Handle PulseX format - check derivedUSD (most common)
-    if (marketData.derivedUSD !== undefined) {
-      // Convert to string to ensure proper handling
-      const price = String(marketData.derivedUSD);
-      console.log('Found PulseX derivedUSD price in TokenCard:', price);
-      
-      // Make sure it's a valid number and greater than 0
-      if (!isNaN(Number(price)) && Number(price) > 0) {
-        console.log(`✅ Using derivedUSD price: ${price}`);
-        return price;
-      }
-    }
-
-    // Try alternate price fields that might be available
-    if (marketData.priceUSD !== undefined) {
-      const price = String(marketData.priceUSD);
-      console.log('Found priceUSD in TokenCard:', price);
-      if (!isNaN(Number(price)) && Number(price) > 0) {
-        console.log(`✅ Using priceUSD: ${price}`);
-        return price;
-      }
-    }
-
-    // SECOND CHECK: Look for price in pair data
-    // Try looking for price in token0Price/token1Price if available
-    if (marketData.pairBase) {
-      console.log('Found pairBase data in TokenCard:', marketData.pairBase);
-      // Handle both array and single object formats
-      const pairs = Array.isArray(marketData.pairBase) ? marketData.pairBase : [marketData.pairBase];
-      
-      for (const pair of pairs) {
-        if (!pair) continue;
-        
-        if (pair.token0Price && !isNaN(Number(pair.token0Price)) && Number(pair.token0Price) > 0) {
-          console.log('Found price in token0Price in TokenCard:', pair.token0Price);
-          console.log(`✅ Using token0Price: ${pair.token0Price}`);
-          return String(pair.token0Price);
-        }
-        if (pair.token1Price && !isNaN(Number(pair.token1Price)) && Number(pair.token1Price) > 0) {
-          console.log('Found price in token1Price in TokenCard:', pair.token1Price);
-          console.log(`✅ Using token1Price: ${pair.token1Price}`);
-          return String(pair.token1Price);
-        }
-      }
-    }
-
-    // THIRD CHECK: Handle Dexscreener format if available
-    if (marketData.pairs && Array.isArray(marketData.pairs)) {
-      console.log('Found Dexscreener pairs data in TokenCard:', marketData.pairs);
-      // Find the pair with the highest liquidity
+  const [livePrice, setLivePrice] = React.useState<string | undefined>(undefined);
+  React.useEffect(() => {
+    // Try to get price from marketData (DexScreener pairs)
+    if (marketData && marketData.pairs && Array.isArray(marketData.pairs)) {
       const bestPair = marketData.pairs.reduce((best: any, current: any) => {
         const bestLiq = best?.liquidity?.usd ? Number(best.liquidity.usd) : 0;
         const currentLiq = current?.liquidity?.usd ? Number(current.liquidity.usd) : 0;
         return currentLiq > bestLiq ? current : best;
       }, marketData.pairs[0]);
-
       if (bestPair?.priceUsd && !isNaN(Number(bestPair.priceUsd)) && Number(bestPair.priceUsd) > 0) {
-        console.log('Found Dexscreener price in TokenCard:', bestPair.priceUsd);
-        console.log(`✅ Using Dexscreener price: ${bestPair.priceUsd}`);
-        return bestPair.priceUsd;
+        setLivePrice(bestPair.priceUsd);
+        return;
       }
     }
+    setLivePrice(undefined);
+  }, [marketData]);
 
-    // FINAL CHECK: If we have a price specifically set to 0, we should display it
-    if (marketData.derivedUSD === "0" || marketData.priceUSD === "0") {
-      console.log('Price explicitly set to 0, returning "0"');
-      return "0";
-    }
+  function lastUpdatedString(ts: number | undefined) {
+    if (!ts) return '';
+    const seconds = Math.floor((Date.now() - ts) / 1000);
+    if (seconds < 2) return 'just now';
+    if (seconds < 60) return `${seconds} seconds ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    return `${Math.floor(seconds / 3600)} hr ago`;
+  }
 
-    console.log('⚠️ No valid price found in market data');
-    
-    // For troubleshooting, try to extract any numeric value as a last resort
-    for (const key in marketData) {
-      if (typeof marketData[key] === 'string' || typeof marketData[key] === 'number') {
-        const numValue = Number(marketData[key]);
-        if (!isNaN(numValue) && numValue > 0) {
-          console.log(`⚠️ Last resort: Found numeric value in ${key}: ${numValue}`);
-          return String(numValue);
-        }
-      }
-    }
-
-    // Really couldn't find anything useful
-    console.log('❌ Could not extract any price information from market data');
-    return undefined;
-  };
-
-  const priceUsd = getBestPriceUsd(marketData);
-  const priceNum = priceUsd ? Number(priceUsd) : undefined;
-  const [copied, setCopied] = React.useState(false);
-  const contractAddress = token?.address;
-
-  // Copy to clipboard handler
-  const handleCopy = async () => {
-    if (contractAddress) {
-      await navigator.clipboard.writeText(contractAddress);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    }
-  };
+  // Always show Mint Button and profitability for EOE and BTB
+  const isChildToken = tokenData.symbol === 'EOE' || tokenData.symbol === 'BTB';
 
   return (
-    <section
-      className={`bg-white rounded-lg shadow transition-shadow duration-200 p-6 flex flex-col gap-4 border border-gray-200 hover:shadow-2xl hover:border-blue-300`}
-      style={{ cursor: 'pointer' }}
-    >
+    <section className={`rounded-lg shadow-md bg-white p-6 border-t-4 ${color} mb-4 relative`}>
       <div className="flex items-center justify-between mb-2">
         <h2 className={`text-2xl font-bold ${color}`}>{title}</h2>
-        {marketLoading ? (
-          <span className="ml-2"><Spinner /> Loading price...</span>
-        ) : marketError ? (
-          <span className="ml-2"><ErrorMsg msg={marketError || "Market data unavailable"} /></span>
-        ) : priceUsd ? (
-          <span className="text-lg font-mono font-bold text-gray-700 bg-gray-100 rounded px-3 py-1 border border-gray-200" title="Current token price (USD)">
-            ${Number(priceUsd).toLocaleString(undefined, { maximumFractionDigits: 6 })} USD
-          </span>
-        ) : marketData ? (
-          <div>
-            <span className="text-xs text-gray-500 ml-2">Price extraction error</span>
-            <button 
-              onClick={() => console.log('Market data debug:', marketData)}
-              className="ml-2 text-xs text-blue-500 underline"
-            >
-              Debug
-            </button>
-          </div>
+      </div>
+      <div className="text-black mb-2">
+        <span className="font-semibold">Name:</span> {tokenData.name}
+      </div>
+      <div className="text-black mb-2">
+        <span className="font-semibold">Symbol:</span> {tokenData.symbol}
+      </div>
+      <div className="text-black mb-2">
+        <span className="font-semibold">Total Supply:</span> {tokenData.totalSupply ? Number(tokenData.totalSupply).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '...'}
+      </div>
+      {/* Live Price Display with loading/error states */}
+      <div className="text-black mb-2">
+        <span className="font-semibold">Live Price:</span>{' '}
+        {loadingState === 'loading' ? (
+          <span className="text-gray-500 font-bold">Loading...</span>
+        ) : loadingState === 'error' ? (
+          <span className="text-red-500 font-bold">Error loading price</span>
+        ) : livePrice !== undefined ? (
+          <span className="font-mono text-green-700 font-bold">${Number(livePrice).toFixed(6)}</span>
         ) : (
-          <span className="text-xs text-gray-500 ml-2">No price data available</span>
+          <span className="text-red-500 font-bold">Unavailable</span>
         )}
+        <span className="text-xs text-gray-500 ml-2">(DexScreener, onchain)</span>
       </div>
-      <div className="text-black">
-        <span className="font-semibold" data-tooltip-id="name-tooltip">Name:</span> {tokenData.name}
-      </div>
-      <div className="text-black flex items-center gap-1">
-        <span className="font-semibold" data-tooltip-id="symbol-tooltip">Symbol:</span> {tokenData.symbol}
-        {contractAddress && (
-          <>
-            <span
-              className="ml-1 text-gray-400 cursor-pointer"
-              data-tooltip-id={`contract-tooltip-${contractAddress}`}
-              data-tooltip-content={contractAddress}
-              style={{ fontSize: '1.1em' }}
-            >
-              ℹ️
-            </span>
-            <button
-              className="ml-1 px-1 py-0.5 rounded bg-gray-100 border border-gray-300 text-xs text-gray-600 hover:bg-gray-200 focus:outline-none"
-              style={{ fontSize: '0.95em' }}
-              onClick={handleCopy}
-              title="Copy contract address"
-              tabIndex={0}
-            >
-              {copied ? 'Copied!' : 'Copy'}
-            </button>
-            <Tooltip id={`contract-tooltip-${contractAddress}`} place="top" />
-          </>
-        )}
-      </div>
-      <div className="text-black"><span className="font-semibold" data-tooltip-id="supply-tooltip">Total Supply:</span> <span className={`${color.replace('text-', 'text-')} font-bold`}>{tokenData.totalSupply ? Number(tokenData.totalSupply).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '...'}</span></div>
-      <div className="text-black flex items-center gap-2"><span className="font-semibold" data-tooltip-id="balance-tooltip">Your Balance:</span> <TokenBalance token={token} decimals={tokenData.decimals} />
-        {priceNum !== undefined && priceNum > 0 && (
-          <span className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-0.5 ml-2" title="USD value of your balance">
-            {/* USD value placeholder for future refactor */}
-          </span>
-        )}
-      </div>
-      {token && token.address && !historyLoading && (
-        <TokenPriceChart 
-          data={chartData}
-          color={color.startsWith('#') ? color : '#4F46E5'} // fallback to a visible blue if not a hex
-        />
-      )}
-      {mintingInfo}
-      {/* Hide irrelevant minting info if market data is missing or mint cost is fixed */}
-      {/* The UI already only shows fixed mint cost and hides step/next price info, so nothing to show here. */}
-      <div className={`bg-gray-50 rounded p-2 border ${color.replace('text-', 'border-100 border-')}`}> 
-        <span className={`font-semibold ${color}`} data-tooltip-id="market-tooltip">Market Data:</span>
-        {marketLoading ? (
-          <span>Loading...</span>
-        ) : marketError ? (
-          <span className="text-xs text-red-500 ml-2">{marketError}</span>
-        ) : marketData ? (
-          <div className="text-sm mt-1 text-black">
-            Price: <span className="font-bold">{getBestPriceUsd(marketData) ? Number(getBestPriceUsd(marketData)).toLocaleString(undefined, { maximumFractionDigits: 6 }) + ' USD' : <span className="text-gray-500">No price data available</span>}</span><br />
-            Liquidity: <span className="font-bold">{(() => {
-              // Try PulseX format first
-              if (marketData.totalLiquidity) return `$${Number(marketData.totalLiquidity).toLocaleString()}`;
-              // Try Dexscreener format
-              const bestPair = marketData.pairs?.reduce((best: any, current: any) => {
-                const bestLiq = best?.liquidity?.usd ? Number(best.liquidity.usd) : 0;
-                const currentLiq = current?.liquidity?.usd ? Number(current.liquidity.usd) : 0;
-                return currentLiq > bestLiq ? current : best;
-              }, marketData.pairs?.[0]);
-              return bestPair?.liquidity?.usd ? `$${Number(bestPair.liquidity.usd).toLocaleString()}` : <span className="text-gray-500">N/A</span>;
-            })()}</span><br />
-            24h Volume: <span className="font-bold">{(() => {
-              // Try PulseX format first
-              if (marketData.tradeVolumeUSD) return `$${Number(marketData.tradeVolumeUSD).toLocaleString()}`;
-              // Try Dexscreener format
-              const bestPair = marketData.pairs?.reduce((best: any, current: any) => {
-                const bestVol = best?.volume?.h24 ? Number(best.volume.h24) : 0;
-                const currentVol = current?.volume?.h24 ? Number(current.volume.h24) : 0;
-                return currentVol > bestVol ? current : best;
-              }, marketData.pairs?.[0]);
-              return bestPair?.volume?.h24 ? `$${Number(bestPair.volume.h24).toLocaleString()}` : <span className="text-gray-500">N/A</span>;
-            })()}</span><br />
-            Market Cap: <span className="font-bold">{(() => {
-              // For both PulseX and Dexscreener, calculate using total supply if available
-              const price = getBestPriceUsd(marketData);
-              if (price && tokenData.totalSupply) {
-                const mcap = Number(price) * Number(tokenData.totalSupply);
-                return `$${mcap.toLocaleString()}`;
-              }
-              // Fallback to Dexscreener's FDV if available
-              const bestPair = marketData.pairs?.[0];
-              return bestPair?.fdv ? `$${Number(bestPair.fdv).toLocaleString()}` : <span className="text-gray-500">N/A</span>;
-            })()}</span>
+      {/* Debug info for troubleshooting */}
+      <details className="text-xs text-gray-400 mb-2">
+        <summary>Debug: marketData & livePrice</summary>
+        <div>
+          <b>livePrice:</b> {String(livePrice)}<br />
+          <b>marketData.pairs:</b> {marketData && marketData.pairs ? marketData.pairs.length : 'none'}<br />
+          <pre style={{maxHeight: 200, overflow: 'auto'}}>{JSON.stringify(marketData, jsonReplacer, 2)}</pre>
+        </div>
+      </details>
+      {isChildToken && (
+        <div className="bg-gray-50 rounded p-2 border border-gray-300 mb-2">
+          <div className="font-bold">Current Mint Cost:</div>
+          <div className="text-2xl mt-1">
+            {typeof mintingInfo?.currentCost === 'number' && mintingInfo.currentCost >= 2
+              ? `${mintingInfo.currentCost} ${tokenData.symbol === 'EOE' ? 'A1A' : 'B2B'}`
+              : <span className="text-red-500 font-bold">Live supply unavailable. Please try again later.</span>}
           </div>
-        ) : null}
-      </div>
-      {children}
+          {/* Profitability badge placeholder - you can add logic to show/hide based on live price data */}
+          {mintingInfo?.profitability !== undefined && (
+            <div className="mt-2">
+              <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-sm font-semibold">Profitability: {mintingInfo.profitability.toFixed(1)}%</span>
+            </div>
+          )}
+          {/* Always show Mint Button for EOE/BTB */}
+          <div className="mt-4">
+            {tokenData.symbol === 'EOE' ? (
+              <MintButton token={token} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" />
+            ) : tokenData.symbol === 'BTB' ? (
+              <MintButton token={token} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" />
+            ) : null}
+          </div>
+          {mintingInfo?.debug && (
+            <div className="mt-2 text-xs text-left bg-gray-100 rounded p-2 border border-gray-300 overflow-x-auto" style={{maxWidth: 400, margin: '0 auto'}}>
+              <b>Debug Info:</b>
+              <pre className="whitespace-pre-wrap break-all">{JSON.stringify(mintingInfo.debug, jsonReplacer, 2)}</pre>
+            </div>
+          )}
+        </div>
+      )}
+      {lastUpdated !== undefined && (
+        <div className="text-xs text-gray-500 mt-1">Last updated: {lastUpdatedString(lastUpdated)}</div>
+      )}
+      {/* Collapsible debug info for advanced troubleshooting */}
+      {debugInfo && (
+        <details className="text-xs text-gray-400 mb-2">
+          <summary>Debug: marketData & tokenData</summary>
+          <div>
+            <b>marketData:</b>
+            <pre style={{maxHeight: 200, overflow: 'auto'}}>{JSON.stringify(debugInfo.marketData, jsonReplacer, 2)}</pre>
+            <b>tokenData:</b>
+            <pre style={{maxHeight: 100, overflow: 'auto'}}>{JSON.stringify(debugInfo.tokenData, jsonReplacer, 2)}</pre>
+          </div>
+        </details>
+      )}
     </section>
   );
 };

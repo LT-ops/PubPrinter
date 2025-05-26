@@ -5,8 +5,21 @@ import { getMockTokenData } from './mockPriceData';
 // PulseX Subgraph endpoint - make sure this URL is correct
 const PULSEX_SUBGRAPH = 'https://graph.pulsechain.com/subgraphs/name/pulsechain/pulsex';
 
-// Updated with a much simpler implementation
+// NOTE: A1A, B2B, EOE, and BTB are now subgraph-only. All fallback to mock data and PulseX API for these tokens is deprecated and should not be used.
+// This hook is only for legacy support of other tokens. For A1A, B2B, EOE, BTB, use useSubgraphTokenPrice instead.
+
 export function usePulseXTokenData(address: string) {
+  // For A1A, B2B, EOE, BTB: always return null and error
+  const lowerCaseAddress = address?.toLowerCase();
+  if ([
+    '0xa7b295c715713487877427589a93f93bc608d240', // EOE
+    '0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3', // BTB
+    '0x697fc467720b2a8e1b2f7f665d0e3f28793e65e8', // A1A
+    '0x6d2dc71afa00484c48bff8160dbddb7973c37a5e'  // B2B
+  ].includes(lowerCaseAddress)) {
+    return { data: null, loading: false, error: 'No token data available' };
+  }
+
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,37 +81,58 @@ export function usePulseXTokenData(address: string) {
           setData(response.data.data.token);
           setError(null);
         } else {
-          console.log(`No token data in response for ${normalizedAddress}, trying fallback mock data...`);
-          
-          // Use mock data as fallback
-          const mockData = getMockTokenData(normalizedAddress);
-          if (mockData) {
-            console.log(`Using mock data for ${normalizedAddress}:`, mockData);
-            setData(mockData);
-            setError(null);
-          } else {
+          console.log(`No token data in response for ${normalizedAddress}`);
+          // For BTB, EOE, B2B, A1A: do NOT use mock data, just set null
+          const specialAddrs = [
+            '0xa7b295c715713487877427589a93f93bc608d240', // EOE
+            '0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3', // BTB
+            '0x697fc467720b2a8e1b2f7f665d0e3f28793e65e8', // A1A
+            '0x6d2dc71afa00484c48bff8160dbddb7973c37a5e'  // B2B
+          ];
+          if (specialAddrs.includes(normalizedAddress)) {
             setData(null);
-            setError('No token data available');
+            setError('This token is subgraph-only. Use useSubgraphTokenPrice.');
+            setLoading(false);
+            return;
+          } else {
+            // Use mock data as fallback for other tokens
+            const mockData = getMockTokenData(normalizedAddress);
+            if (mockData) {
+              console.log(`Using mock data for ${normalizedAddress}:`, mockData);
+              setData(mockData);
+              setError(null);
+            } else {
+              setData(null);
+              setError('No token data available');
+            }
           }
         }
       } catch (err: any) {
         console.error(`Error fetching PulseX data for ${normalizedAddress}:`, err);
-        
-        // Only update state if component still mounted
         if (!isMounted) return;
-        
-        // Try to use mock data as fallback on error
-        const mockData = getMockTokenData(normalizedAddress);
-        if (mockData) {
-          console.log(`Error occurred but using mock data for ${normalizedAddress}:`, mockData);
-          setData(mockData);
-          setError(null);
-        } else {
+        // For BTB, EOE, B2B, A1A: do NOT use mock data, just set null
+        const specialAddrs = [
+          '0xa7b295c715713487877427589a93f93bc608d240', // EOE
+          '0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3', // BTB
+          '0x697fc467720b2a8e1b2f7f665d0e3f28793e65e8', // A1A
+          '0x6d2dc71afa00484c48bff8160dbddb7973c37a5e'  // B2B
+        ];
+        if (specialAddrs.includes(normalizedAddress)) {
           setData(null);
           setError(err.message || 'Failed to fetch token data');
+        } else {
+          // Try to use mock data as fallback on error for other tokens
+          const mockData = getMockTokenData(normalizedAddress);
+          if (mockData) {
+            console.log(`Error occurred but using mock data for ${normalizedAddress}:`, mockData);
+            setData(mockData);
+            setError(null);
+          } else {
+            setData(null);
+            setError(err.message || 'Failed to fetch token data');
+          }
         }
       } finally {
-        // Only update state if component still mounted
         if (isMounted) {
           setLoading(false);
         }
@@ -108,17 +142,7 @@ export function usePulseXTokenData(address: string) {
     // Execute the fetch function immediately
     fetchTokenData();
     console.log("fetchTokenData called for address:", address);
-    
-    // IMPROVED FALLBACK: Use mock data immediately to ensure we have data showing
-    const mockData = getMockTokenData(normalizedAddress);
-    if (mockData) {
-      console.log(`IMMEDIATE FALLBACK: Using mock data for ${normalizedAddress}:`, mockData);
-      // Set data immediately rather than using setTimeout
-      setData(mockData);
-      
-      // We'll keep loading=true so the API can potentially replace this data
-      // if it succeeds, but at least we'll have mockData showing immediately
-    }
+    // Removed IMMEDIATE FALLBACK: mock data is only set after API call fails for non-special tokens
 
     // Cleanup function to prevent state updates after unmount
     return () => {

@@ -20,7 +20,7 @@ export const MOCK_PRICE_DATA = {
     id: "0x6d2dc71afa00484c48bff8160dbddb7973c37a5e",
     symbol: "B2B",
     name: "B2B",
-    derivedUSD: "0.08245671290414222", 
+    derivedUSD: "0.13", 
     tradeVolumeUSD: "39003.24258822425",
     totalLiquidity: "169012.78521359913",
     totalSupply: "740508.0",
@@ -44,7 +44,7 @@ export const MOCK_PRICE_DATA = {
     id: "0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3",
     symbol: "BTB", 
     name: "BeeTwoBee",
-    derivedUSD: "0.4972590952492314",
+    derivedUSD: "0.13",
     tradeVolumeUSD: "19082.45197532167",
     totalLiquidity: "84129.76982145669",
     totalSupply: "1883.2666666666667",
@@ -52,12 +52,21 @@ export const MOCK_PRICE_DATA = {
   }
 };
 
+// NOTE: Mock price data is now deprecated for A1A, B2B, EOE, and BTB. These tokens are subgraph-only. This file is only for legacy support of other tokens.
+
 // Function to get mock data for a token
 export function getMockTokenData(address: string) {
   if (!address) return null;
-  
   const lowerCaseAddress = address.toLowerCase();
-  console.log(`Looking up mock data for: ${lowerCaseAddress}`);
+  // For A1A, B2B, EOE, BTB: always return null
+  if ([
+    '0xa7b295c715713487877427589a93f93bc608d240', // EOE
+    '0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3', // BTB
+    '0x697fc467720b2a8e1b2f7f665d0e3f28793e65e8', // A1A
+    '0x6d2dc71afa00484c48bff8160dbddb7973c37a5e'  // B2B
+  ].includes(lowerCaseAddress)) {
+    return null;
+  }
 
   // Define a lookup map to account for case sensitivity issues
   const addressMap: Record<string, string> = {
@@ -76,20 +85,6 @@ export function getMockTokenData(address: string) {
   if (mockData) {
     console.log(`Found mock data for ${lowerCaseAddress}:`, mockData);
     return mockData;
-  }
-  
-  // If not found, map by token symbols from tokens.ts
-  if (lowerCaseAddress === '0x697fc467720b2a8e1b2f7f665d0e3f28793e65e8'.toLowerCase()) {
-    return MOCK_PRICE_DATA["0x697fc467720b2a8e1b2f7f665d0e3f28793e65e8"];
-  }
-  if (lowerCaseAddress === '0x6d2dc71afa00484c48bff8160dbddb7973c37a5e'.toLowerCase()) {
-    return MOCK_PRICE_DATA["0x6d2dc71afa00484c48bff8160dbddb7973c37a5e"];
-  }
-  if (lowerCaseAddress === '0xa7b295c715713487877427589a93f93bc608d240'.toLowerCase()) {
-    return MOCK_PRICE_DATA["0xa7b295c715713487877427589a93f93bc608d240"];
-  }
-  if (lowerCaseAddress === '0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3'.toLowerCase()) {
-    return MOCK_PRICE_DATA["0x1df3da06c8047da659c8a5213ac2e7ded8dee7e3"];
   }
   
   // Fallback to name/symbol checking if exact address lookup failed

@@ -21,7 +21,12 @@ const mockCheckMintingProfitability = (
   const mintingCostUSD = currentCost * Number(parentTokenMarketPrice);
   const marketPriceUSD = Number(mintedTokenMarketPrice);
   const profitMargin = ((marketPriceUSD - mintingCostUSD) / mintingCostUSD) * 100;
-  return { isProfitable: profitMargin > 2, profitMargin };
+  
+  // Using stricter threshold of 3% to match main code
+  return { 
+    isProfitable: profitMargin > 3, 
+    profitMargin 
+  }; 
 };
 
 describe('getMintingInfo', () => {

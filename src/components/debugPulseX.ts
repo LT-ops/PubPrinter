@@ -27,7 +27,7 @@ async function testPulseXAPI() {
 
   try {
     const response = await axios.post(PULSEX_SUBGRAPH, query);
-    console.log('PulseX API Direct Response:', response.data);
+    console.log('Full PulseX API Response:', JSON.stringify(response.data, null, 2));
     
     if (response.data && response.data.data && response.data.data.token) {
       console.log('Token Data:', response.data.data.token);
