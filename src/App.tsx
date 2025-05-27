@@ -212,7 +212,7 @@ function checkMintingProfitability(
 
 // --- Mint Button & Modal ---
 // Handles approval, allowance, and minting for a token
-function MintButton({ token, label, parentToken, parentSymbol, disabled, currentCost, darkMode }: { token: any, label: string, parentToken: any, parentSymbol: string, disabled?: boolean, currentCost?: number, darkMode?: boolean }) {
+function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMode }: { token: any, label: string, parentToken: any, parentSymbol: string, disabled?: boolean, darkMode?: boolean }) {
   const { address } = useAccount();
   
   // Use separate state variables to avoid cross-dependencies that cause infinite loops

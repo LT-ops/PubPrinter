@@ -132,9 +132,9 @@ const TokenCard: React.FC<TokenCardProps> = ({
           {/* Always show Mint Button for EOE/BTB */}
           <div className="mt-4">
             {tokenData.symbol === 'EOE' ? (
-              <MintButton token={tokenData} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" currentCost={mintingInfo?.currentCost} />
+              <MintButton token={tokenData} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" />
             ) : tokenData.symbol === 'BTB' ? (
-              <MintButton token={tokenData} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" currentCost={mintingInfo?.currentCost} />
+              <MintButton token={tokenData} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" />
             ) : null}
           </div>
           {mintingInfo?.debug && (
