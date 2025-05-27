@@ -13,11 +13,6 @@ interface MintingInfo {
 interface TokenCardProps {
   color: string;
   title: string;
-  token: {
-    address: string;
-    symbol: string;
-    name: string;
-  };
   tokenData: {
     name: string;
     symbol: string;
@@ -29,6 +24,7 @@ interface TokenCardProps {
   marketData?: any; // <-- Add this prop for live price
   debugInfo?: { marketData?: any; tokenData?: any }; // <-- Add debugInfo prop
   loadingState?: 'loading' | 'error' | 'nodata' | 'ok'; // <-- Add loadingState prop
+  darkMode?: boolean; // <-- Add darkMode prop
 }
 
 // Custom replacer for JSON.stringify to handle BigInt
@@ -39,13 +35,13 @@ function jsonReplacer(_: string, value: any) {
 const TokenCard: React.FC<TokenCardProps> = ({
   color,
   title,
-  token,
   tokenData,
   mintingInfo,
   lastUpdated,
   marketData, // <-- Add this prop for live price
   debugInfo, // <-- Add debugInfo prop
   loadingState = 'ok', // <-- Add loadingState prop
+  darkMode = false, // <-- Add darkMode prop
 }) => {
   const [livePrice, setLivePrice] = React.useState<string | undefined>(undefined);
   React.useEffect(() => {
@@ -77,7 +73,13 @@ const TokenCard: React.FC<TokenCardProps> = ({
   const isChildToken = tokenData.symbol === 'EOE' || tokenData.symbol === 'BTB';
 
   return (
-    <section className={`rounded-lg shadow-md bg-white p-6 border-t-4 ${color} mb-4 relative`}>
+    <section className={`rounded-lg shadow-md border-t-4 ${color} mb-4 relative`} style={{
+      background: darkMode ? 'rgba(40,48,64,0.96)' : '#f7f8fa',
+      boxShadow: darkMode ? '0 2px 16px #0006' : '0 2px 8px #0001',
+      border: darkMode ? '1px solid #2d3650' : '1px solid #e5e7eb',
+      color: darkMode ? '#f3f6fa' : '#1a202c',
+      transition: 'background 0.3s, color 0.3s',
+    }}>
       <div className="flex items-center justify-between mb-2">
         <h2 className={`text-2xl font-bold ${color}`}>{title}</h2>
       </div>
@@ -130,9 +132,9 @@ const TokenCard: React.FC<TokenCardProps> = ({
           {/* Always show Mint Button for EOE/BTB */}
           <div className="mt-4">
             {tokenData.symbol === 'EOE' ? (
-              <MintButton token={token} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" />
+              <MintButton token={tokenData} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" currentCost={mintingInfo?.currentCost} />
             ) : tokenData.symbol === 'BTB' ? (
-              <MintButton token={token} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" />
+              <MintButton token={tokenData} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" currentCost={mintingInfo?.currentCost} />
             ) : null}
           </div>
           {mintingInfo?.debug && (
