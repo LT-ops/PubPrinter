@@ -1,46 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import './App.css'
 import { ethers } from 'ethers';
 import { TOKENS } from "./constants/tokens";
-import { getDefaultConfig, RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
-import { WagmiConfig, http, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSimulateContract } from 'wagmi';
-import { useAccount, useBalance } from 'wagmi';
-import '@rainbow-me/rainbowkit/styles.css';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useSimulateContract, useAccount, useBalance } from 'wagmi';
+import { QueryClient } from '@tanstack/react-query';
 import TokenCard from './TokenCard';
 import { useDexScreenerTokenPrice } from './components/shared';
 import TipJar from './components/TipJar';
 
 // --- Chain and WalletConnect Setup ---
-const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
-
-const pulseChain = {
-  id: 369,
-  name: 'PulseChain',
-  network: 'pulsechain',
-  nativeCurrency: {
-    name: 'Pulse',
-    symbol: 'PLS',
-    decimals: 18,
-  },
-  rpcUrls: {
-    default: { http: ['https://rpc.pulsechain.com'] },
-    public: { http: ['https://rpc.pulsechain.com'] },
-  },
-  blockExplorers: {
-    default: { name: 'PulseScan', url: 'https://scan.pulsechain.com' },
-  },
-  testnet: false,
-};
-
-const config = getDefaultConfig({
-  appName: 'PubPrinter',
-  projectId: WALLETCONNECT_PROJECT_ID,
-  chains: [pulseChain],
-  transports: {
-    [pulseChain.id]: http('https://rpc.pulsechain.com'),
-  },
-});
 
 const queryClient = new QueryClient();
 
@@ -224,14 +193,25 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
   const [allowance, setAllowance] = useState<bigint>(0n);
 
   // --- Parent token balance for user guidance ---
-  // Fix: Only pass 'token' to useBalance if address is defined and parentToken is not native (PLS)
+  // Add loading and timeout state for balance fetch
+  const [balanceLoadTimeout, setBalanceLoadTimeout] = useState(false);
   const isNative = !parentToken.address;
   const balanceArgs = address
     ? isNative
       ? { address, chainId: 369 }
       : { address, token: parentToken.address as `0x${string}`, chainId: 369 }
     : { address, chainId: 369 };
-  const { data: parentBalanceData } = useBalance(balanceArgs);
+  const { data: parentBalanceData, isLoading: isBalanceLoading } = useBalance(balanceArgs);
+
+  // Set a timeout for balance loading (5 seconds)
+  useEffect(() => {
+    if (isBalanceLoading) {
+      const timer = setTimeout(() => setBalanceLoadTimeout(true), 5000);
+      return () => clearTimeout(timer);
+    } else {
+      setBalanceLoadTimeout(false);
+    }
+  }, [isBalanceLoading]);
 
   // Fix: declare effectiveTotalSupply at the top before any use
   let effectiveTotalSupply = token.totalSupply;
@@ -309,13 +289,13 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
   let likelyToFail = false;
   if (amountInWei && parentBalanceData?.value) {
     // Calculate total cost using step cost
-    const requiredBalance = parentToken.address
+    const localRequiredBalance = parentToken.address
       ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
       : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
-    if (parentBalanceData.value < requiredBalance) {
+    if (parentBalanceData.value < localRequiredBalance) {
       likelyToFail = true;
     }
-    if (parentToken.address && allowance !== undefined && allowance < requiredBalance) {
+    if (parentToken.address && allowance !== undefined && allowance < localRequiredBalance) {
       likelyToFail = true;
     }
   }
@@ -348,12 +328,49 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
   };
 
   // Approve parent token
-  const { writeContract, isPending } = useWriteContract();
-  const { isLoading: isTxLoading, isSuccess } = useWaitForTransactionReceipt({ hash: undefined });
+  const { writeContractAsync, isPending } = useWriteContract();
+  // State to track approval transaction and required balance
+  const [approvalTxHash, setApprovalTxHash] = useState<`0x${string}` | undefined>(undefined);
+  const [requiredBalance, setRequiredBalance] = useState<bigint | undefined>(undefined);
+  
+  // This hook is used to wait for transaction receipt
+  const { data: txReceipt, isLoading: isTxLoading, isSuccess } = useWaitForTransactionReceipt({ 
+    hash: approvalTxHash 
+  });
 
   useEffect(() => {
-    if (isSuccess) setApproved(true);
-  }, [isSuccess]);
+    // When approval transaction completes successfully
+    if (isSuccess && txReceipt && approvalTxHash) {
+      console.log('Approval transaction confirmed:', txReceipt);
+      setApproved(true);
+      
+      // If we have the token information, update the allowance
+      if (parentToken.address && requiredBalance) {
+        setAllowance(requiredBalance);
+      }
+      
+      // Clear any approval-related error messages
+      setError(null);
+      
+      // Reset the approval tx hash
+      setApprovalTxHash(undefined);
+    }
+  }, [isSuccess, txReceipt, approvalTxHash, parentToken.address, requiredBalance]);
+  
+  // Add debug logging for button state
+  useEffect(() => {
+    if (token.symbol === 'EOE' || token.symbol === 'BTB') {
+      console.log('Button state debug:', { 
+        tokenSymbol: token.symbol,
+        parentTokenSymbol: parentSymbol,
+        approved,
+        allowance: allowance?.toString() || '0',
+        requiredAmount: amountInWei?.toString() || '0',
+        needsApproval: parentToken.address && (token.symbol === 'EOE' || token.symbol === 'BTB'),
+        insufficientAllowance: allowance < (amountInWei || 0n)
+      });
+    }
+  }, [token.symbol, parentSymbol, approved, allowance, amountInWei]);
 
   // Allowance check using useReadContract
   const { data: allowanceData } = useReadContract({
@@ -388,23 +405,65 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
     setError(null);
   };
   
-  const handleApprove = () => {
+  // Check if user has enough balance to mint
+  const validateBalance = () => {
+    if (isBalanceLoading) {
+      setError('Loading balance...');
+      return false;
+    }
+    if (balanceLoadTimeout && !parentBalanceData) {
+      setError(`Unable to verify ${parentSymbol} balance. Please check your connection or try again.`);
+      return false;
+    }
+    if (amountInWei && mintingInfo) {
+      // Calculate and store the required balance
+      const calculatedRequiredBalance = parentToken.address
+        ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
+        : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
+      setRequiredBalance(calculatedRequiredBalance);
+      const requiredBalanceFormatted = ethers.formatUnits(calculatedRequiredBalance, parentToken.decimals || 18);
+      if (parentToken.address && parentBalanceData) {
+        if (parentBalanceData.value < calculatedRequiredBalance) {
+          setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (total cost). Your balance: ${parentBalanceData.formatted}`);
+          return false;
+        }
+        if (allowance !== undefined && allowance < calculatedRequiredBalance) {
+          setError(`Insufficient allowance. Please approve at least ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} for minting. Your current allowance: ${ethers.formatUnits(allowance, parentToken.decimals || 18)}`);
+          return false;
+        }
+      } else if (!parentToken.address && parentBalanceData?.value) {
+        if (parentBalanceData.value < calculatedRequiredBalance) {
+          setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (total cost). Your balance: ${parentBalanceData.formatted}`);
+          return false;
+        }
+      } else if (!parentBalanceData) {
+        setError(`Unable to verify ${parentSymbol} balance. Please check your connection or try again.`);
+        return false;
+      }
+    }
+    return true; // Balance is sufficient
+  };
+
+  const handleApproveAndMint = async () => {
     setError(null);
+
+    // Validate input
     if (!amount || amount.trim() === '') {
       setError('Please enter an amount');
       return;
     }
+    
     const numValue = Number(amount);
     if (isNaN(numValue) || numValue <= 0) {
       setError('Amount must be greater than zero');
       return;
     }
-    if (decimals === 0) {
-      if (!Number.isInteger(numValue)) {
-        setError('This token only supports whole numbers');
-        return;
-      }
+    
+    if (decimals === 0 && !Number.isInteger(numValue)) {
+      setError('This token only supports whole numbers');
+      return;
     }
+    
     if (amount.includes('.')) {
       const parts = amount.split('.');
       if (parts[1] && parts[1].length > decimals) {
@@ -412,43 +471,85 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
         return;
       }
     }
-    // Check if user has enough balance to mint
-    if (amountInWei && mintingInfo) {
-      const requiredBalance = parentToken.address
-        ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
-        : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
-      const requiredBalanceFormatted = ethers.formatUnits(requiredBalance, parentToken.decimals || 18);
-      if (parentToken.address && parentBalanceData?.value) {
-        if (parentBalanceData.value < requiredBalance) {
-          setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (total cost). Your balance: ${parentBalanceData.formatted}`);
-          return;
-        }
-        if (allowance !== undefined && allowance < requiredBalance) {
-          setError(`Insufficient allowance. Please approve at least ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} for minting. Your current allowance: ${ethers.formatUnits(allowance, parentToken.decimals || 18)}`);
-          return;
-        }
-      } else if (!parentToken.address && parentBalanceData?.value) {
-        if (parentBalanceData.value < requiredBalance) {
-          setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (total cost). Your balance: ${parentBalanceData.formatted}`);
-          return;
-        }
-      } else {
-        setError(`Unable to verify ${parentSymbol} balance. Please try again.`);
-        return;
-      }
+    
+    // Validate balance
+    if (!validateBalance()) {
+      return;
     }
+
     try {
       if (!amountInWei) throw new Error('Invalid amount');
-      // Only send value for A1A/B2B (PLS mint), not for EOE/BTB
-      const isPlsMint = token.symbol === 'A1A' || token.symbol === 'B2B';
-      writeContract({
-        address: token.address,
-        abi: token.abi,
-        functionName: 'mint',
-        args: [amountInWei],
-        chainId: 369,
-        ...(isPlsMint ? { value: ethers.parseUnits(totalMintCost.totalCost.toString(), 18) } : {})
+
+      // Check if approval is needed
+      const calcRequiredBalance = parentToken.address
+        ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
+        : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
+        
+      // Store for use in effects
+      setRequiredBalance(calcRequiredBalance);
+
+      // For EOE and BTB tokens, A1A and B2B approval is needed
+      // For A1A and B2B tokens, they're minted with native PLS so no approval is needed
+      const isEoeOrBtb = token.symbol === 'EOE' || token.symbol === 'BTB';
+      const needsApproval = parentToken.address && isEoeOrBtb;
+      
+      console.log('Approval check:', { 
+        tokenSymbol: token.symbol, 
+        parentTokenAddress: parentToken.address,
+        needsApproval, 
+        currentAllowance: allowance.toString(),
+        requiredBalance: calcRequiredBalance.toString(),
+        needsApprovalTransaction: needsApproval && allowance < calcRequiredBalance
       });
+      
+      // Check if we need to approve and if our allowance is insufficient
+      if (needsApproval && allowance < calcRequiredBalance) {
+        console.log('Approving parent token...', parentToken.address, ' for amount: ', calcRequiredBalance.toString());
+        
+        try {
+          // Perform approval transaction
+          const hash = await writeContractAsync({
+            address: parentToken.address as `0x${string}`,
+            abi: parentToken.abi,
+            functionName: 'approve',
+            args: [token.address as `0x${string}`, calcRequiredBalance],
+            chainId: 369,
+          });
+          
+          console.log('Approval transaction submitted:', hash);
+          setError('Approval transaction submitted. Please confirm and wait before minting.');
+          
+          // Set the approval transaction hash to track
+          setApprovalTxHash(hash);
+          console.log('Approval transaction hash set:', hash);
+          console.log('Waiting for approval transaction to be confirmed...');
+          
+          // The rest will be handled by the useEffect when the transaction confirms
+        } catch (err: any) {
+          console.error('Approval failed:', err);
+          setError(`Approval failed: ${err.message || 'Unknown error'}`);
+          return; // Stop if approval fails
+        }
+      }
+
+      // Now proceed with minting
+      console.log('Minting tokens...');
+      const isPlsMint = token.symbol === 'A1A' || token.symbol === 'B2B';
+      
+      try {
+        await writeContractAsync({
+          address: token.address as `0x${string}`,
+          abi: token.abi,
+          functionName: 'mint',
+          args: [amountInWei],
+          chainId: 369,
+          ...(isPlsMint ? { value: requiredBalance } : {}),
+        });
+      } catch (mintErr: any) {
+        console.error('Minting failed:', mintErr);
+        setError(`Minting failed: ${mintErr.message || 'Unknown error'}`);
+        return; // Don't close the dialog if minting fails
+      }
       setShowInput(false);
     } catch (e: any) {
       setError(e.message || 'Mint failed');
@@ -484,7 +585,7 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
     
     // Validate input when user stops typing
     
-    // Check for zero values
+   
     if (amount === '0' || amount === '0.' || Number(amount) <= 0) {
       setError('Amount must be greater than zero');
       return;
@@ -569,18 +670,24 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
           <div
             className="rounded-lg p-6 max-w-md w-full shadow-lg border"
             style={{
-              background: darkMode ? 'linear-gradient(135deg, #e3e8f7 0%, #c7d0e0 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #e6eaf2 100%)',
-              color: darkMode ? '#232946' : '#1a202c',
-              borderColor: darkMode ? '#b0b8c9' : '#e2e8f0',
-              boxShadow: darkMode ? '0 4px 32px #0005' : '0 4px 24px #b0b8c955',
+              background: darkMode ? 'linear-gradient(135deg, #0f172a 0%, #020617 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #e6eaf2 100%)',
+              color: darkMode ? '#ffffff' : '#1a202c',
+              borderColor: darkMode ? '#1e293b' : '#e2e8f0',
+              boxShadow: darkMode ? '0 4px 32px rgba(0,0,0,0.5)' : '0 4px 24px rgba(176,184,201,0.33)',
             }}
           >
-            <h3 className="text-lg font-bold mb-4" style={{ color: darkMode ? '#fff' : '#232946' }}>{label}</h3>
+            <h3 className="text-lg font-bold mb-4" style={{ color: darkMode ? '#ffffff' : '#232946', textShadow: darkMode ? '0 1px 2px rgba(0,0,0,0.2)' : 'none' }}>{label}</h3>
             <div className="space-y-4">
               {/* Always show current cost and next step for EOE/BTB above the input */}
               {(token.symbol === 'EOE' || token.symbol === 'BTB') && (
-                <div className="mb-1 text-xs font-semibold" style={{ color: darkMode ? '#2d3a5a' : '#3b3b3b', background: darkMode ? '#e3e8f7' : '#e6eaf2', borderRadius: 4, padding: '6px 8px' }}>
-                  Current mint cost: {mintingInfo?.currentCost} {costSymbol} (next increase at {mintingInfo?.nextMintingStep} minted, {mintingInfo?.remainingAtCurrentCost} left at this cost)
+                <div className="mb-1 text-xs font-semibold" style={{ 
+                  background: darkMode ? 'rgba(15,23,42,0.95)' : '#e6eaf2',
+                  borderRadius: 4, 
+                  padding: '6px 8px',
+                  boxShadow: darkMode ? '0 1px 3px rgba(0, 0, 0, 0.3)' : 'none',
+                  color: darkMode ? '#ffffff' : '#3b3b3b',
+                }}>
+                  <span style={{ fontWeight: 800, color: darkMode ? '#ffffff' : 'inherit' }}>Current mint cost:</span> <span style={{ color: darkMode ? '#ffffff' : '#3b3b3b', fontWeight: 700 }}>{mintingInfo?.currentCost} {costSymbol}</span> <span style={{ color: darkMode ? '#ffffff' : '#3b3b3b' }}>(next increase at {mintingInfo?.nextMintingStep} minted, {mintingInfo?.remainingAtCurrentCost} left at this cost)</span>
                 </div>
               )}
               <div>
@@ -592,14 +699,14 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
                   value={amount}
                   onChange={handleAmountChange}
                   onBlur={handleAmountBlur}
-                  className={`w-full p-2 rounded border focus:ring-2 transition-all ${darkMode ? 'bg-[#f3f6fa] border-[#b0b8c9] text-[#232946] placeholder-gray-500 focus:ring-blue-200 focus:border-blue-300' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-indigo-400 focus:border-indigo-400'}`}
+                  className={`w-full p-2 rounded border focus:ring-2 transition-all ${darkMode ? 'bg-[#232946] border-[#b0b8c9] text-white placeholder-gray-400 focus:ring-blue-200 focus:border-blue-300' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-indigo-400 focus:border-indigo-400'}`}
                   placeholder="Enter amount"
                   autoFocus
                   style={{ fontWeight: 500, fontSize: '1.05rem' }}
                 />
               </div>
               {error && (
-                <div className="text-sm mt-1" style={{ color: darkMode ? '#ff6b6b' : '#b91c1c', background: darkMode ? '#2d1a1a' : '#fee2e2', borderRadius: 6, padding: '6px 10px' }}>{error}</div>
+                <div className="text-sm mt-1" style={{ color: darkMode ? (error === 'Loading balance...' ? '#ffe066' : '#ff6b6b') : (error === 'Loading balance...' ? '#b45309' : '#b91c1c'), background: darkMode ? (error === 'Loading balance...' ? '#3a3500' : '#2d1a1a') : (error === 'Loading balance...' ? '#fef3c7' : '#fee2e2'), borderRadius: 6, padding: '6px 10px' }}>{error}</div>
               )}
               {stepWarning && (
                 <div className="text-sm mt-1" style={{ color: darkMode ? '#ffe066' : '#b45309', background: darkMode ? '#3a3500' : '#fef3c7', borderRadius: 6, padding: '6px 10px' }}>
@@ -614,17 +721,23 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
               <div
                 className="rounded text-sm mt-2"
                 style={{
-                  background: darkMode ? 'rgba(255,255,255,0.85)' : '#f1f5fa',
-                  color: darkMode ? '#232946' : '#232946',
-                  border: darkMode ? '1px solid #b0b8c9' : '1px solid #e2e8f0',
+                  background: darkMode ? 'rgba(15,23,42,0.95)' : '#f1f5fa',
+                  color: darkMode ? '#ffffff' : '#232946',
+                  border: darkMode ? '1px solid #334155' : '1px solid #e2e8f0',
                   padding: '10px 12px',
                   fontWeight: 500,
                 }}
               >
                 {/* Stepwise minting info always visible for EOE/BTB */}
                 {(token.symbol === 'EOE' || token.symbol === 'BTB') && (
-                  <div className="mb-2 text-xs font-semibold" style={{ color: darkMode ? '#2d3a5a' : '#3b3b3b', background: darkMode ? '#e3e8f7' : '#e6eaf2', borderRadius: 4, padding: '6px 8px' }}>
-                    Mint cost goes up by 1 {costSymbol} every {token.symbol === 'EOE' ? '1,111 EOE' : '420 BTB'} minted.
+                  <div className="mb-2 text-xs font-semibold" style={{ 
+                    color: darkMode ? '#ffffff' : '#3b3b3b', 
+                    background: darkMode ? 'rgba(15,23,42,0.95)' : '#e6eaf2',
+                    borderRadius: 4, 
+                    padding: '6px 8px',
+                    boxShadow: darkMode ? '0 1px 3px rgba(0, 0, 0, 0.3)' : 'none'
+                  }}>
+                    <span style={{ color: darkMode ? '#ffffff' : 'inherit' }}>Mint cost goes up by 1 {costSymbol} every {token.symbol === 'EOE' ? '1,111 EOE' : '420 BTB'} minted.</span>
                   </div>
                 )}
                 {/* Cost per token and breakdown logic for EOE/BTB */}
@@ -632,21 +745,21 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
                   <>
                     <div>
                       {amount && !error && amountNum > 0 && totalMintCost.breakdown.length === 1 ? (
-                        <>Cost per token: <span style={{ color: darkMode ? '#232946' : '#232946', fontWeight: 700 }}>{totalMintCost.breakdown[0].cost} {costSymbol}</span></>
+                        <><span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Cost per token:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>{totalMintCost.breakdown[0].cost} {costSymbol}</span></>
                       ) : amount && !error && amountNum > 0 ? (
                         <>
-                          Cost per token: <span style={{ color: darkMode ? '#232946' : '#232946', fontWeight: 700 }}>Stepwise (see breakdown below)</span>
+                          <span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Cost per token:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>Stepwise (see breakdown below)</span>
                         </>
                       ) : (
-                        <>Cost per token: <span style={{ color: darkMode ? '#232946' : '#232946', fontWeight: 700 }}>-</span></>
+                        <><span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Cost per token:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>-</span></>
                       )}
                     </div>
-                    <div>Total cost: <span style={{ color: darkMode ? '#232946' : '#232946', fontWeight: 700 }}>{amount && !error && amountNum > 0 ? totalMintCost.totalCost : 0} {costSymbol}</span></div>
+                    <div><span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Total cost:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>{amount && !error && amountNum > 0 ? totalMintCost.totalCost : 0} {costSymbol}</span></div>
                     {/* Always show breakdown if more than one tier is involved */}
                     {amount && !error && totalMintCost.breakdown.length > 1 && (
-                      <div className="text-xs mt-1" style={{ color: darkMode ? '#4b5673' : '#6b7280' }}>
-                        Breakdown: {totalMintCost.breakdown.map((b, i) => (
-                          <span key={i} style={{ display: 'inline-block', marginRight: 8 }}>{b.count} @ {b.cost} {costSymbol}</span>
+                      <div className="text-xs mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>
+                        <span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Breakdown:</span> {totalMintCost.breakdown.map((b, i) => (
+                          <span key={i} style={{ display: 'inline-block', marginRight: 8, color: darkMode ? '#ffffff' : 'inherit' }}>{b.count} @ {b.cost} {costSymbol}</span>
                         ))}
                       </div>
                     )}
@@ -654,11 +767,11 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
                 ) : null}
                 {/* For A1A/B2B, only show cost if amount entered */}
                 {(token.symbol === 'A1A' || token.symbol === 'B2B') && amount && !error && (
-                  <div>Total cost: <span style={{ color: darkMode ? '#232946' : '#232946', fontWeight: 700 }}>{amountNum * (mintingInfo?.currentCost || 1)} {costSymbol}</span></div>
+                  <div><span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 600 }}>Total cost:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>{amountNum * (mintingInfo?.currentCost || 1)} {costSymbol}</span></div>
                 )}
                 {/* Show balance and allowance for EOE/BTB */}
                 {(token.symbol === 'EOE' || token.symbol === 'BTB') && (
-                  <div className="text-xs mt-2" style={{ color: darkMode ? '#4b5673' : '#6b7280' }}>
+                  <div className="text-xs mt-2" style={{ color: darkMode ? '#c7d0e0' : '#6b7280' }}>
                     Balance: {parentBalanceData?.formatted ? Number(parentBalanceData.formatted).toLocaleString(undefined, { maximumFractionDigits: 6 }) : '...'} {costSymbol}<br />
                     Allowance: {(() => {
                       // Format allowance: show 'Unlimited' if max uint256, else format with commas and 6 decimals
@@ -684,23 +797,18 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
               >
                 Cancel
               </button>
-              {!approved ? (
-                <button
-                  onClick={handleApprove}
-                  disabled={!amount || !!error || isPending}
-                  className={`flex-1 px-4 py-2 rounded font-semibold transition-colors ${darkMode ? (!amount || !!error || isPending ? 'bg-gray-600 text-gray-300' : 'bg-blue-700 text-white hover:bg-blue-800') : (!amount || !!error || isPending ? 'bg-gray-400 text-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700')}`}
-                >
-                  {isPending ? 'Approving...' : 'Approve'}
-                </button>
-              ) : (
-                <button
-                  onClick={handleApprove}
-                  disabled={!amount || !!error || isPending}
-                  className={`flex-1 px-4 py-2 rounded font-semibold transition-colors ${darkMode ? (!amount || !!error || isPending ? 'bg-gray-600 text-gray-300' : 'bg-blue-700 text-white hover:bg-blue-800') : (!amount || !!error || isPending ? 'bg-gray-400 text-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700')}`}
-                >
-                  {isPending ? 'Minting...' : 'Mint'}
-                </button>
-              )}
+              <button
+                onClick={handleApproveAndMint}
+                disabled={!amount || !!error || isPending || isTxLoading}
+                className={`flex-1 px-4 py-2 rounded font-semibold transition-colors ${darkMode ? (!amount || !!error || isPending || isTxLoading ? 'bg-gray-600 text-gray-300' : 'bg-blue-700 text-white hover:bg-blue-800') : (!amount || !!error || isPending || isTxLoading ? 'bg-gray-400 text-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700')}`}
+              >
+                {isPending || isTxLoading ? 
+                  (isPending ? 'Processing...' : 'Waiting for confirmation...') : 
+                  ((token.symbol === 'EOE' || token.symbol === 'BTB') && parentToken.address && 
+                   (allowance === undefined || allowance === 0n || 
+                    (totalMintCost && allowance < ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18))) ? 
+                    'Approve & Mint' : 'Mint')}
+              </button>
             </div>
           </div>
         </div>
@@ -710,7 +818,11 @@ function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMod
 }
 
 // --- Main Dashboard Content ---
-function AppContent() {
+const AppContent = memo(function AppContent() {
+  useEffect(() => {
+    console.log('Rendering AppContent...');
+  }, []);
+
   const [a1a, setA1A] = useState({ name: "", symbol: "", totalSupply: "", decimals: 18 });
   const [b2b, setB2B] = useState({ name: "", symbol: "", totalSupply: "", decimals: 18 });
   const [eoe, setEoe] = useState({ name: "", symbol: "", totalSupply: "", decimals: 18 });
@@ -849,6 +961,14 @@ function AppContent() {
         >
           <span role="img" aria-label="sun">☀️</span> Pub Printer <span role="img" aria-label="printer">🖨️</span>
         </h1>
+        <a
+          href="#"
+          className="ml-4 px-3 py-2 rounded-full border border-gray-300 bg-gray-200 text-gray-500 text-sm font-semibold shadow cursor-not-allowed"
+          title="Feature under development"
+          onClick={(e) => e.preventDefault()}
+        >
+          Child Tokens
+        </a>
         <button
           className="ml-4 px-3 py-2 rounded-full border border-gray-300 bg-white dark:bg-gray-800 dark:border-gray-700 text-xl shadow hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
           aria-label="Toggle dark mode"
@@ -947,17 +1067,21 @@ function AppContent() {
       </footer>
     </div>
   );
-}
+});
+
+const MemoizedRainbowKitProvider = memo(function MemoizedRainbowKitProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <RainbowKitProvider>
+      {children}
+    </RainbowKitProvider>
+  );
+});
 
 function App() {
   return (
-    <WagmiConfig config={config}>
-      <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider>
-          <AppContent />
-        </RainbowKitProvider>
-      </QueryClientProvider>
-    </WagmiConfig>
+    <MemoizedRainbowKitProvider>
+      <AppContent />
+    </MemoizedRainbowKitProvider>
   );
 }
 
@@ -1006,5 +1130,5 @@ function calculateTotalMintCost({
   return { totalCost, breakdown };
 }
 
-export { MintButton };
+export { MintButton, getMintingInfo, calculateTotalMintCost, checkMintingProfitability, queryClient };
 export default App;
