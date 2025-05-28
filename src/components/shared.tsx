@@ -8,10 +8,13 @@ export function ErrorMsg({ msg }: { msg: string }) {
   return <span className="text-xs text-red-500 ml-2">{msg}</span>;
 }
 
-export function OpportunityBadge() {
+export function OpportunityBadge({ isProfitable, profitMargin }: { isProfitable: boolean; profitMargin: number }) {
+  const badgeColor = isProfitable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+  const badgeText = isProfitable ? `Profit: ${profitMargin.toFixed(2)}%` : `Loss: ${profitMargin.toFixed(2)}%`;
+
   return (
-    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-800 text-xs font-semibold" data-tooltip-id="opportunity-tooltip">
-      🚀 Opportunity
+    <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded ${badgeColor} text-xs font-semibold`}>
+      {isProfitable ? '🚀' : '⚠️'} {badgeText}
     </span>
   );
 }
@@ -127,36 +130,36 @@ export async function fetchDexscreenerPrice(tokenAddress: string): Promise<strin
   try {
     console.log(`Fetching Dexscreener price for ${tokenAddress}...`);
     const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
+    console.log(`DexScreener API response status: ${response.status}`);
     if (!response.ok) {
       console.error(`DexScreener API returned status ${response.status}`);
       return undefined;
     }
     const data = await response.json();
-    
+    console.log(`DexScreener API response data:`, data);
+
     if (data && data.pairs && Array.isArray(data.pairs) && data.pairs.length > 0) {
-      // Find the pair with the highest liquidity
       const bestPair = data.pairs.reduce((best: any, current: any) => {
         const bestLiq = best?.liquidity?.usd ? Number(best.liquidity.usd) : 0;
         const currentLiq = current?.liquidity?.usd ? Number(current.liquidity.usd) : 0;
         return currentLiq > bestLiq ? current : best;
       }, data.pairs[0]);
-      
+
       if (bestPair?.priceUsd && !isNaN(Number(bestPair.priceUsd))) {
-        // Validate price is within reasonable range
         const price = Number(bestPair.priceUsd);
-        if (price > 0 && price < 1000) { // Reasonable price range for these tokens
-          console.log(`Found Dexscreener price for ${tokenAddress}: ${bestPair.priceUsd}`);
+        if (price > 0 && price < 1000) {
+          console.log(`Valid DexScreener price for ${tokenAddress}: ${bestPair.priceUsd}`);
           return bestPair.priceUsd;
         } else {
           console.warn(`Price ${price} for ${tokenAddress} seems unreasonable`);
         }
       }
     }
-    
-    console.log(`No valid price found in Dexscreener data for ${tokenAddress}`);
+
+    console.log(`No valid price found in DexScreener data for ${tokenAddress}`);
     return undefined;
   } catch (error) {
-    console.error(`Error fetching Dexscreener price for ${tokenAddress}:`, error);
+    console.error(`Error fetching DexScreener price for ${tokenAddress}:`, error);
     return undefined;
   }
 }

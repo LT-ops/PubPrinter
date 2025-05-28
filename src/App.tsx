@@ -1,821 +1,224 @@
 import { useState, useEffect, memo } from 'react';
-import './App.css'
+import './App.css';
 import { ethers } from 'ethers';
 import { TOKENS } from "./constants/tokens";
 import { RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useSimulateContract, useAccount, useBalance } from 'wagmi';
-import { QueryClient } from '@tanstack/react-query';
 import TokenCard from './TokenCard';
 import { useDexScreenerTokenPrice } from './components/shared';
 import TipJar from './components/TipJar';
+import { getMintingInfo, checkMintingProfitability } from './utils/minting';
+import { useAccount } from 'wagmi';
 
 // --- Chain and WalletConnect Setup ---
 
-const queryClient = new QueryClient();
-
 // --- Minting Step Logic ---
 // Calculates minting cost, step, and supply info for a token based on total supply
-interface MintingDebugInfo {
-  totalSupply: number;
-  stepSize: number;
-  initialSupply: number;
-  mintedAfterInitial: number;
-  currentStepNumber: number;
-  initialBaseCost: number;
-  totalIncrease: number;
-  currentCost: number;
-  nextMintingStep: number;
-  remainingAtCurrentCost: number;
-  tokenType: string;
-}
+// interface MintingDebugInfo {
+//   totalSupply: number;
+//   stepSize: number;
+//   initialSupply: number;
+//   mintedAfterInitial: number;
+//   currentStepNumber: number;
+//   initialBaseCost: number;
+//   totalIncrease: number;
+//   currentCost: number;
+//   nextMintingStep: number;
+//   remainingAtCurrentCost: number;
+//   tokenType: string;
+// }
 
-interface MintingInfo {
-  currentCost: number;
-  remainingAtCurrentCost: number;
-  nextMintingStep: number;
-  debug: MintingDebugInfo;
-}
+// interface MintingInfo {
+//   currentCost: number;
+//   remainingAtCurrentCost: number;
+//   nextMintingStep: number;
+//   debug: MintingDebugInfo;
+// }
 
-function getMintingInfo(totalSupply: number | undefined, step: number, initialSupply: number = 0): MintingInfo {
-  // Calculate mint cost based on step logic
-  if (typeof totalSupply !== 'number' || isNaN(totalSupply)) {
-    const baseCost = 2;
-    return {
-      currentCost: baseCost,
-      remainingAtCurrentCost: initialSupply > 0 ? initialSupply : step,
-      nextMintingStep: initialSupply + step,
-      debug: {
-        totalSupply: 0,
-        stepSize: step,
-        initialSupply,
-        mintedAfterInitial: 0,
-        currentStepNumber: 0,
-        initialBaseCost: baseCost,
-        totalIncrease: 0,
-        currentCost: baseCost,
-        nextMintingStep: initialSupply + step,
-        remainingAtCurrentCost: initialSupply > 0 ? initialSupply : step,
-        tokenType: step === 1111 ? 'EOE' : 'BTB',
-      },
-    };
-  }
-  // If supply is less than initialSupply, still show base cost
-  if (totalSupply < initialSupply) {
-    const baseCost = 2;
-    return {
-      currentCost: baseCost,
-      remainingAtCurrentCost: initialSupply - totalSupply,
-      nextMintingStep: initialSupply,
-      debug: {
-        totalSupply: totalSupply || 0,
-        stepSize: step,
-        initialSupply,
-        mintedAfterInitial: 0,
-        currentStepNumber: 0,
-        initialBaseCost: baseCost,
-        totalIncrease: 0,
-        currentCost: baseCost,
-        nextMintingStep: initialSupply,
-        remainingAtCurrentCost: initialSupply - totalSupply,
-        tokenType: step === 1111 ? 'EOE' : 'BTB',
-      },
-    };
-  }
-  // EOE and BTB start at baseCost 2, increase by 1 every step
-  const baseCost = 2;
-  // Use totalSupply + 1 to get the cost for the next token to be minted
-  const nextTokenSupply = Math.floor(totalSupply) + 1;
-  const mintedAfterInitial = Math.max(0, nextTokenSupply - initialSupply - 1);
-  const currentStep = Math.floor(mintedAfterInitial / step);
-  const currentCost = baseCost + currentStep;
-  const nextMintingStep = initialSupply + (currentStep + 1) * step;
-  const remainingAtCurrentCost = nextMintingStep - Math.floor(totalSupply);
-  const debugInfo: MintingDebugInfo = {
-    totalSupply: totalSupply || 0,
-    stepSize: step,
-    initialSupply,
-    mintedAfterInitial,
-    currentStepNumber: currentStep,
-    initialBaseCost: baseCost,
-    totalIncrease: currentStep,
-    currentCost,
-    nextMintingStep,
-    remainingAtCurrentCost,
-    tokenType: step === 1111 ? 'EOE' : 'BTB',
-  };
-  return {
-    currentCost,
-    remainingAtCurrentCost,
-    nextMintingStep,
-    debug: debugInfo,
-  };
-}
+// function getMintingInfo(totalSupply: number | undefined, step: number, initialSupply: number = 0): MintingInfo {
+//   // Calculate mint cost based on step logic
+//   if (typeof totalSupply !== 'number' || isNaN(totalSupply)) {
+//     const baseCost = 2;
+//     return {
+//       currentCost: baseCost,
+//       remainingAtCurrentCost: initialSupply > 0 ? initialSupply : step,
+//       nextMintingStep: initialSupply + step,
+//       debug: {
+//         totalSupply: 0,
+//         stepSize: step,
+//         initialSupply,
+//         mintedAfterInitial: 0,
+//         currentStepNumber: 0,
+//         initialBaseCost: baseCost,
+//         totalIncrease: 0,
+//         currentCost: baseCost,
+//         nextMintingStep: initialSupply + step,
+//         remainingAtCurrentCost: initialSupply > 0 ? initialSupply : step,
+//         tokenType: step === 1111 ? 'EOE' : 'BTB',
+//       },
+//     };
+//   }
+//   // If supply is less than initialSupply, still show base cost
+//   if (totalSupply < initialSupply) {
+//     const baseCost = 2;
+//     return {
+//       currentCost: baseCost,
+//       remainingAtCurrentCost: initialSupply - totalSupply,
+//       nextMintingStep: initialSupply,
+//       debug: {
+//         totalSupply: totalSupply || 0,
+//         stepSize: step,
+//         initialSupply,
+//         mintedAfterInitial: 0,
+//         currentStepNumber: 0,
+//         initialBaseCost: baseCost,
+//         totalIncrease: 0,
+//         currentCost: baseCost,
+//         nextMintingStep: initialSupply,
+//         remainingAtCurrentCost: initialSupply - totalSupply,
+//         tokenType: step === 1111 ? 'EOE' : 'BTB',
+//       },
+//     };
+//   }
+//   // EOE and BTB start at baseCost 2, increase by 1 every step
+//   const baseCost = 2;
+//   // Use totalSupply + 1 to get the cost for the next token to be minted
+//   const nextTokenSupply = Math.floor(totalSupply) + 1;
+//   const mintedAfterInitial = Math.max(0, nextTokenSupply - initialSupply - 1);
+//   const currentStep = Math.floor(mintedAfterInitial / step);
+//   const currentCost = baseCost + currentStep;
+//   const nextMintingStep = initialSupply + (currentStep + 1) * step;
+//   const remainingAtCurrentCost = nextMintingStep - Math.floor(totalSupply);
+//   const debugInfo: MintingDebugInfo = {
+//     totalSupply: totalSupply || 0,
+//     stepSize: step,
+//     initialSupply,
+//     mintedAfterInitial,
+//     currentStepNumber: currentStep,
+//     initialBaseCost: baseCost,
+//     totalIncrease: currentStep,
+//     currentCost,
+//     nextMintingStep,
+//     remainingAtCurrentCost,
+//     tokenType: step === 1111 ? 'EOE' : 'BTB',
+//   };
+//   return {
+//     currentCost,
+//     remainingAtCurrentCost,
+//     nextMintingStep,
+//     debug: debugInfo,
+//   };
+// }
 
-// Enhanced function to check minting profitability with more detailed status
-function checkMintingProfitability(
-  currentCost: number,
-  mintedTokenMarketPrice: string | undefined,
-  parentTokenMarketPrice: string | undefined
-): {
-  isProfitable: boolean,
-  profitMargin: number,
-  profitColor: string,
-  status: 'profit' | 'breakeven' | 'loss' | 'unknown',
-  statusLabel: string,
-  statusClass: string,
-  icon: string
-} {
-  if (
-    !mintedTokenMarketPrice ||
-    isNaN(Number(mintedTokenMarketPrice)) ||
-    !parentTokenMarketPrice ||
-    isNaN(Number(parentTokenMarketPrice))
-  ) {
-    return { 
-      isProfitable: false, 
-      profitMargin: 0, 
-      profitColor: 'text-gray-500',
-      status: 'unknown',
-      statusLabel: 'UNKNOWN',
-      statusClass: 'bg-gray-100 text-gray-500',
-      icon: '❓'
-    };
-  }
+// function checkMintingProfitability(
+//   currentCost: number,
+//   mintedTokenMarketPrice: string | undefined,
+//   parentTokenMarketPrice: string | undefined
+// ): {
+//   isProfitable: boolean,
+//   profitMargin: number,
+//   profitColor: string,
+//   status: 'profit' | 'breakeven' | 'loss' | 'unknown',
+//   statusLabel: string,
+//   statusClass: string,
+//   icon: string
+// } {
+//   if (
+//     !mintedTokenMarketPrice ||
+//     isNaN(Number(mintedTokenMarketPrice)) ||
+//     !parentTokenMarketPrice ||
+//     isNaN(Number(parentTokenMarketPrice))
+//   ) {
+//     return { 
+//       isProfitable: false, 
+//       profitMargin: 0, 
+//       profitColor: 'text-gray-500',
+//       status: 'unknown',
+//       statusLabel: 'UNKNOWN',
+//       statusClass: 'bg-gray-100 text-gray-500',
+//       icon: '❓'
+//     };
+//   }
 
-  const mintingCostUSD = currentCost * Number(parentTokenMarketPrice);
-  const marketPriceUSD = Number(mintedTokenMarketPrice);
-  const profitMargin = ((marketPriceUSD - mintingCostUSD) / mintingCostUSD) * 100;
+//   const mintingCostUSD = currentCost * Number(parentTokenMarketPrice);
+//   const marketPriceUSD = Number(mintedTokenMarketPrice);
+//   const profitMargin = ((marketPriceUSD - mintingCostUSD) / mintingCostUSD) * 100;
 
-  if (profitMargin > 2) {
-    return {
-      isProfitable: true,
-      profitMargin,
-      profitColor: profitMargin > 20 ? 'text-green-600' : 'text-green-500',
-      status: 'profit',
-      statusLabel: 'PROFIT',
-      statusClass: profitMargin > 20 ? 'bg-green-100 text-green-700' : 'bg-green-50 text-green-600',
-      icon: '💰'
-    };
-  } else if (profitMargin >= -2 && profitMargin <= 2) {
-    return {
-      isProfitable: false,
-      profitMargin,
-      profitColor: 'text-yellow-600',
-      status: 'breakeven',
-      statusLabel: 'BREAK EVEN',
-      statusClass: 'bg-yellow-50 text-yellow-700',
-      icon: '⚖️'
-    };
-  } else {
-    return {
-      isProfitable: false,
-      profitMargin,
-      profitColor: profitMargin > -20 ? 'text-yellow-500' : 'text-red-500',
-      status: 'loss',
-      statusLabel: 'LOSS',
-      statusClass: profitMargin > -20 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700',
-      icon: '⚠️'
-    };
-  }
-}
+//   if (profitMargin > 2) {
+//     return {
+//       isProfitable: true,
+//       profitMargin,
+//       profitColor: profitMargin > 20 ? 'text-green-600' : 'text-green-500',
+//       status: 'profit',
+//       statusLabel: 'PROFIT',
+//       statusClass: profitMargin > 20 ? 'bg-green-100 text-green-700' : 'bg-green-50 text-green-600',
+//       icon: '💰'
+//     };
+//   } else if (profitMargin >= -2 && profitMargin <= 2) {
+//     return {
+//       isProfitable: false,
+//       profitMargin,
+//       profitColor: 'text-yellow-600',
+//       status: 'breakeven',
+//       statusLabel: 'BREAK EVEN',
+//       statusClass: 'bg-yellow-50 text-yellow-700',
+//       icon: '⚖️'
+//     };
+//   } else {
+//     return {
+//       isProfitable: false,
+//       profitMargin,
+//       profitColor: profitMargin > -20 ? 'text-yellow-500' : 'text-red-500',
+//       status: 'loss',
+//       statusLabel: 'LOSS',
+//       statusClass: profitMargin > -20 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700',
+//       icon: '⚠️'
+//     };
+//   }
+// }
 
-// --- Mint Button & Modal ---
-// Handles approval, allowance, and minting for a token
-function MintButton({ token, label, parentToken, parentSymbol, disabled, darkMode }: { token: any, label: string, parentToken: any, parentSymbol: string, disabled?: boolean, darkMode?: boolean }) {
-  const { address } = useAccount();
-  
-  // Use separate state variables to avoid cross-dependencies that cause infinite loops
-  const [amount, setAmount] = useState('');
-  const [showInput, setShowInput] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [approved, setApproved] = useState(false);
-  const [stepWarning, setStepWarning] = useState<string | null>(null);
-  const [allowance, setAllowance] = useState<bigint>(0n);
-
-  // --- Parent token balance for user guidance ---
-  // Add loading and timeout state for balance fetch
-  const [balanceLoadTimeout, setBalanceLoadTimeout] = useState(false);
-  const isNative = !parentToken.address;
-  const balanceArgs = address
-    ? isNative
-      ? { address, chainId: 369 }
-      : { address, token: parentToken.address as `0x${string}`, chainId: 369 }
-    : { address, chainId: 369 };
-  const { data: parentBalanceData, isLoading: isBalanceLoading } = useBalance(balanceArgs);
-
-  // Set a timeout for balance loading (5 seconds)
-  useEffect(() => {
-    if (isBalanceLoading) {
-      const timer = setTimeout(() => setBalanceLoadTimeout(true), 5000);
-      return () => clearTimeout(timer);
-    } else {
-      setBalanceLoadTimeout(false);
-    }
-  }, [isBalanceLoading]);
-
-  // Fix: declare effectiveTotalSupply at the top before any use
-  let effectiveTotalSupply = token.totalSupply;
-
-  // Step boundary warning logic
-  let mintingInfo: any = null;
-  let mintStep = 0, initialSupply = 0, baseCost = 2;
-  if (token.symbol === 'EOE') {
-    // Always use integer part of totalSupply for step logic
-    const eoeSupply = Math.floor(Number(token.totalSupply || 0));
-    mintStep = TOKENS.EHONEEH.mintStep;
-    initialSupply = 1111;
-    mintingInfo = getMintingInfo(eoeSupply, mintStep, initialSupply);
-  } else if (token.symbol === 'BTB') {
-    const btbSupply = Math.floor(Number(token.totalSupply || 0));
-    mintStep = TOKENS.BEETWOBEE.mintStep;
-    initialSupply = 420;
-    mintingInfo = getMintingInfo(btbSupply, mintStep, initialSupply);
-  } else {
-    mintingInfo = null;
-  }
-
-  // --- Mint amount preview and warnings ---
-  let amountInWei: bigint | undefined = undefined;
-  const decimals = token.decimals ?? 18;
-  let amountNum = 0;
-  try {
-    if (amount && amount !== '0' && amount !== '0.' && Number(amount) > 0) {
-      amountInWei = ethers.parseUnits(amount, decimals);
-      amountNum = Number(amount);
-    }
-  } catch {
-    amountInWei = undefined;
-    amountNum = 0;
-  }
-
-  // Determine correct cost symbol for display
-  let costSymbol = parentSymbol;
-  // For EOE, cost is in A1A; for BTB, cost is in B2B; for A1A and B2B, cost is in PLS
-  if (token.symbol === 'A1A' || token.symbol === 'B2B') {
-    costSymbol = 'PLS';
-  } else if (token.symbol === 'EOE') {
-    costSymbol = 'A1A';
-  } else if (token.symbol === 'BTB') {
-    costSymbol = 'B2B';
-  }
-
-  // Calculate total mint cost using step logic
-  let totalMintCost = mintingInfo?.currentCost && amountNum > 0 && (token.symbol === 'EOE' || token.symbol === 'BTB')
-    ? calculateTotalMintCost({
-        totalSupply: Math.floor(Number(effectiveTotalSupply || 0)),
-        amount: amountNum,
-        step: mintStep,
-        initialSupply,
-        baseCost,
-      })
-    : { totalCost: amountNum * (mintingInfo?.currentCost || 1), breakdown: [{ count: amountNum, cost: mintingInfo?.currentCost || 1 }] };
-
-  // --- Gas estimation using useSimulateContract ---
-  const simulate = useSimulateContract({
-    address: token.address,
-    abi: token.abi,
-    functionName: 'mint',
-    args: amountInWei ? [amountInWei] : undefined,
-    chainId: 369,
-    account: address,
-    query: { enabled: !!amountInWei && !!address },
-  });
-  const gasEstimate = simulate.data?.request?.gas;
-  const gasEstimationFailed = !!simulate.error;
-  const gasIsHigh = gasEstimate && gasEstimate > 1000000n;
-
-  // --- Show gas warning if user is likely to fail ---
-  // Show if estimation fails, or if parent balance/allowance is insufficient
-  let likelyToFail = false;
-  if (amountInWei && parentBalanceData?.value) {
-    // Calculate total cost using step cost
-    const localRequiredBalance = parentToken.address
-      ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
-      : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
-    if (parentBalanceData.value < localRequiredBalance) {
-      likelyToFail = true;
-    }
-    if (parentToken.address && allowance !== undefined && allowance < localRequiredBalance) {
-      likelyToFail = true;
-    }
-  }
-  // Always show if estimation fails
-  if (gasEstimationFailed) likelyToFail = true;
-  // Show if gas is very high
-  if (gasIsHigh) likelyToFail = true;
-
-  const gasWarning = likelyToFail
-    ? gasEstimationFailed
-      ? 'Gas estimation failed. This transaction may fail or be very expensive. This is often due to insufficient allowance, parent token balance, or contract minting rules.'
-      : gasIsHigh
-        ? `Warning: Estimated gas is unusually high (${gasEstimate?.toString()}). This mint may be expensive or fail.`
-        : null
-    : null;
-
-  // Move step warning logic to be part of blur validation
-  // This prevents the effect from causing re-renders during typing
-  const updateStepWarning = () => {
-    // Clear any existing warning
-    setStepWarning(null);
-    
-    // Skip validation for empty input
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
-    
-    // Check for step boundary issues
-    if (mintingInfo && mintingInfo.remainingAtCurrentCost > 0 && Number(amount) > mintingInfo.remainingAtCurrentCost) {
-      setStepWarning(`Warning: Minting more than the remaining at current cost (${mintingInfo.remainingAtCurrentCost}). This will cross a step boundary and may increase gas and cost per token.`);
-    }
-  };
-
-  // Approve parent token
-  const { writeContractAsync, isPending } = useWriteContract();
-  // State to track approval transaction and required balance
-  const [approvalTxHash, setApprovalTxHash] = useState<`0x${string}` | undefined>(undefined);
-  const [requiredBalance, setRequiredBalance] = useState<bigint | undefined>(undefined);
-  
-  // This hook is used to wait for transaction receipt
-  const { data: txReceipt, isLoading: isTxLoading, isSuccess } = useWaitForTransactionReceipt({ 
-    hash: approvalTxHash 
-  });
-
-  useEffect(() => {
-    // When approval transaction completes successfully
-    if (isSuccess && txReceipt && approvalTxHash) {
-      console.log('Approval transaction confirmed:', txReceipt);
-      setApproved(true);
-      
-      // If we have the token information, update the allowance
-      if (parentToken.address && requiredBalance) {
-        setAllowance(requiredBalance);
-      }
-      
-      // Clear any approval-related error messages
-      setError(null);
-      
-      // Reset the approval tx hash
-      setApprovalTxHash(undefined);
-    }
-  }, [isSuccess, txReceipt, approvalTxHash, parentToken.address, requiredBalance]);
-  
-  // Add debug logging for button state
-  useEffect(() => {
-    if (token.symbol === 'EOE' || token.symbol === 'BTB') {
-      console.log('Button state debug:', { 
-        tokenSymbol: token.symbol,
-        parentTokenSymbol: parentSymbol,
-        approved,
-        allowance: allowance?.toString() || '0',
-        requiredAmount: amountInWei?.toString() || '0',
-        needsApproval: parentToken.address && (token.symbol === 'EOE' || token.symbol === 'BTB'),
-        insufficientAllowance: allowance < (amountInWei || 0n)
-      });
-    }
-  }, [token.symbol, parentSymbol, approved, allowance, amountInWei]);
-
-  // Allowance check using useReadContract
-  const { data: allowanceData } = useReadContract({
-    address: parentToken.address,
-    abi: parentToken.abi,
-    functionName: 'allowance',
-    args: address && token.address ? [address, token.address] : undefined,
-    chainId: 369,
-    query: { enabled: !!address && !!token.address && !!amount && !isNaN(Number(amount)) && Number(amount) > 0 },
-  });
-  useEffect(() => {
-    if (allowanceData !== undefined && amount && !isNaN(Number(amount)) && Number(amount) > 0) {
-      setAllowance(allowanceData as bigint);
-      
-      try {
-        // Convert amount to wei (considering decimals) before comparing with allowance
-        const amountInWei = ethers.parseUnits(amount, decimals);
-        setApproved(amountInWei <= (allowanceData as bigint));
-      } catch (error) {
-        // If parsing fails (e.g., due to invalid decimals), don't approve
-        setApproved(false);
-      }
-    } else {
-      setAllowance(0n);
-      setApproved(false);
-    }
-  }, [allowanceData, amount, decimals]);
-
-  const handleMint = () => {
-    // Simply show the input dialog and clear any existing errors
-    setShowInput(true);
-    setError(null);
-  };
-  
-  // Check if user has enough balance to mint
-  const validateBalance = () => {
-    if (isBalanceLoading) {
-      setError('Loading balance...');
-      return false;
-    }
-    if (balanceLoadTimeout && !parentBalanceData) {
-      setError(`Unable to verify ${parentSymbol} balance. Please check your connection or try again.`);
-      return false;
-    }
-    if (amountInWei && mintingInfo) {
-      // Calculate and store the required balance
-      const calculatedRequiredBalance = parentToken.address
-        ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
-        : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
-      setRequiredBalance(calculatedRequiredBalance);
-      const requiredBalanceFormatted = ethers.formatUnits(calculatedRequiredBalance, parentToken.decimals || 18);
-      if (parentToken.address && parentBalanceData) {
-        if (parentBalanceData.value < calculatedRequiredBalance) {
-          setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (total cost). Your balance: ${parentBalanceData.formatted}`);
-          return false;
-        }
-        if (allowance !== undefined && allowance < calculatedRequiredBalance) {
-          setError(`Insufficient allowance. Please approve at least ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} for minting. Your current allowance: ${ethers.formatUnits(allowance, parentToken.decimals || 18)}`);
-          return false;
-        }
-      } else if (!parentToken.address && parentBalanceData?.value) {
-        if (parentBalanceData.value < calculatedRequiredBalance) {
-          setError(`Insufficient ${parentSymbol} balance. You need ${Number(requiredBalanceFormatted).toLocaleString()} ${parentSymbol} (total cost). Your balance: ${parentBalanceData.formatted}`);
-          return false;
-        }
-      } else if (!parentBalanceData) {
-        setError(`Unable to verify ${parentSymbol} balance. Please check your connection or try again.`);
-        return false;
-      }
-    }
-    return true; // Balance is sufficient
-  };
-
-  const handleApproveAndMint = async () => {
-    setError(null);
-
-    // Validate input
-    if (!amount || amount.trim() === '') {
-      setError('Please enter an amount');
-      return;
-    }
-    
-    const numValue = Number(amount);
-    if (isNaN(numValue) || numValue <= 0) {
-      setError('Amount must be greater than zero');
-      return;
-    }
-    
-    if (decimals === 0 && !Number.isInteger(numValue)) {
-      setError('This token only supports whole numbers');
-      return;
-    }
-    
-    if (amount.includes('.')) {
-      const parts = amount.split('.');
-      if (parts[1] && parts[1].length > decimals) {
-        setError(`Maximum ${decimals} decimal places allowed`);
-        return;
-      }
-    }
-    
-    // Validate balance
-    if (!validateBalance()) {
-      return;
-    }
-
-    try {
-      if (!amountInWei) throw new Error('Invalid amount');
-
-      // Check if approval is needed
-      const calcRequiredBalance = parentToken.address
-        ? ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18)
-        : ethers.parseUnits(totalMintCost.totalCost.toString(), 18);
-        
-      // Store for use in effects
-      setRequiredBalance(calcRequiredBalance);
-
-      // For EOE and BTB tokens, A1A and B2B approval is needed
-      // For A1A and B2B tokens, they're minted with native PLS so no approval is needed
-      const isEoeOrBtb = token.symbol === 'EOE' || token.symbol === 'BTB';
-      const needsApproval = parentToken.address && isEoeOrBtb;
-      
-      console.log('Approval check:', { 
-        tokenSymbol: token.symbol, 
-        parentTokenAddress: parentToken.address,
-        needsApproval, 
-        currentAllowance: allowance.toString(),
-        requiredBalance: calcRequiredBalance.toString(),
-        needsApprovalTransaction: needsApproval && allowance < calcRequiredBalance
-      });
-      
-      // Check if we need to approve and if our allowance is insufficient
-      if (needsApproval && allowance < calcRequiredBalance) {
-        console.log('Approving parent token...', parentToken.address, ' for amount: ', calcRequiredBalance.toString());
-        
-        try {
-          // Perform approval transaction
-          const hash = await writeContractAsync({
-            address: parentToken.address as `0x${string}`,
-            abi: parentToken.abi,
-            functionName: 'approve',
-            args: [token.address as `0x${string}`, calcRequiredBalance],
-            chainId: 369,
-          });
-          
-          console.log('Approval transaction submitted:', hash);
-          setError('Approval transaction submitted. Please confirm and wait before minting.');
-          
-          // Set the approval transaction hash to track
-          setApprovalTxHash(hash);
-          console.log('Approval transaction hash set:', hash);
-          console.log('Waiting for approval transaction to be confirmed...');
-          
-          // The rest will be handled by the useEffect when the transaction confirms
-        } catch (err: any) {
-          console.error('Approval failed:', err);
-          setError(`Approval failed: ${err.message || 'Unknown error'}`);
-          return; // Stop if approval fails
-        }
-      }
-
-      // Now proceed with minting
-      console.log('Minting tokens...');
-      const isPlsMint = token.symbol === 'A1A' || token.symbol === 'B2B';
-      
-      try {
-        await writeContractAsync({
-          address: token.address as `0x${string}`,
-          abi: token.abi,
-          functionName: 'mint',
-          args: [amountInWei],
-          chainId: 369,
-          ...(isPlsMint ? { value: requiredBalance } : {}),
-        });
-      } catch (mintErr: any) {
-        console.error('Minting failed:', mintErr);
-        setError(`Minting failed: ${mintErr.message || 'Unknown error'}`);
-        return; // Don't close the dialog if minting fails
-      }
-      setShowInput(false);
-    } catch (e: any) {
-      setError(e.message || 'Mint failed');
-    }
-  };
-  
-  // We've moved the input sanitization logic directly into the handleAmountChange function
-  // This prevents issues with state updates causing re-renders
-
-  // Removed unused validation function
-
-  // Handle validation directly in the input handler instead of using effects
-  // No useEffect for input sanitization - this eliminates the cause of infinite loops
-  
-  // Super simple implementation with no validation during typing
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Just set the raw input value without any validation
-    // This is the key to preventing re-render loops!
-    setAmount(e.target.value);
-    
-    // Clear any existing error
-    if (error) {
-      setError(null);
-    }
-  };
-  
-  // Only validate on blur for better UX
-  const handleAmountBlur = () => {
-    // Skip validation for empty input
-    if (!amount || amount.trim() === '') {
-      return;
-    }
-    
-    // Validate input when user stops typing
-    
-   
-    if (amount === '0' || amount === '0.' || Number(amount) <= 0) {
-      setError('Amount must be greater than zero');
-      return;
-    }
-    
-    // For tokens with no decimals, ensure it's a whole number
-    if (decimals === 0 && !Number.isInteger(Number(amount))) {
-      setError('This token only supports whole numbers');
-      return;
-    }
-    
-    // Check for invalid characters
-    if (!/^\d*\.?\d*$/.test(amount) || isNaN(Number(amount))) {
-      setError('Invalid number format');
-      return;
-    }
-    
-    // Check decimal places
-    if (amount.includes('.')) {
-      const parts = amount.split('.');
-      if (parts[1] && parts[1].length > decimals) {
-        setError(`Maximum ${decimals} decimal places allowed`);
-        return;
-      }
-    }
-    
-    // Everything is valid, clear any errors
-    setError(null);
-    
-    // Check for step warnings when validation is complete
-    updateStepWarning();
-  };
-
-  // This function has been commented out since it's not currently used
-  // but may be useful for future functionality
-  /*
-  const calculateRequiredBalance = (inputAmount: string): { requiredBalance: bigint, formattedBalance: string } | null => {
-    if (!inputAmount || !mintingInfo || isNaN(Number(inputAmount))) return null;
-    try {
-      const amountBigInt = ethers.parseUnits(inputAmount, decimals);
-      const requiredBalance = amountBigInt * BigInt(mintingInfo.currentCost);
-      const formattedBalance = ethers.formatUnits(requiredBalance, parentToken.decimals || 18);
-      return { requiredBalance, formattedBalance };
-    } catch {
-      return null;
-    }
-  };
-  */
-
-  // Show pending transaction warning
-  useEffect(() => {
-    if (isPending || isTxLoading) {
-      // showNotification('Transaction in progress. Please wait...', 'info');
-    }
-  }, [isPending, isTxLoading]);
-
-  // In MintButton, get up-to-date totalSupply for EOE and BTB from the token itself (not parentToken)
-  if (token.symbol === 'EOE' || token.symbol === 'BTB') {
-    effectiveTotalSupply = Math.floor(Number(token.totalSupply || 0));
-    mintingInfo = getMintingInfo(effectiveTotalSupply, mintStep, initialSupply);
-  }
-  let mintBoxCostPerToken = mintingInfo?.currentCost;
-  // For A1A/B2B, fallback to internal logic if currentCost is not provided
-  if ((token.symbol === 'A1A' || token.symbol === 'B2B') && !mintBoxCostPerToken) {
-    mintBoxCostPerToken = mintingInfo?.currentCost;
-  }
-
-  return (
-    <div className="mt-2">
-      <button
-        onClick={handleMint}
-        disabled={disabled}
-        className={`w-full px-4 py-2 rounded text-white font-semibold transition-all ${
-          disabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
-        }`}
-      >
-        {label}
-      </button>
-
-      {showInput && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 z-50" style={{ background: darkMode ? 'rgba(60,70,90,0.75)' : 'rgba(220,225,235,0.92)' }}>
-          <div
-            className="rounded-lg p-6 max-w-md w-full shadow-lg border"
-            style={{
-              background: darkMode ? 'linear-gradient(135deg, #0f172a 0%, #020617 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #e6eaf2 100%)',
-              color: darkMode ? '#ffffff' : '#1a202c',
-              borderColor: darkMode ? '#1e293b' : '#e2e8f0',
-              boxShadow: darkMode ? '0 4px 32px rgba(0,0,0,0.5)' : '0 4px 24px rgba(176,184,201,0.33)',
-            }}
-          >
-            <h3 className="text-lg font-bold mb-4" style={{ color: darkMode ? '#ffffff' : '#232946', textShadow: darkMode ? '0 1px 2px rgba(0,0,0,0.2)' : 'none' }}>{label}</h3>
-            <div className="space-y-4">
-              {/* Always show current cost and next step for EOE/BTB above the input */}
-              {(token.symbol === 'EOE' || token.symbol === 'BTB') && (
-                <div className="mb-1 text-xs font-semibold" style={{ 
-                  background: darkMode ? 'rgba(15,23,42,0.95)' : '#e6eaf2',
-                  borderRadius: 4, 
-                  padding: '6px 8px',
-                  boxShadow: darkMode ? '0 1px 3px rgba(0, 0, 0, 0.3)' : 'none',
-                  color: darkMode ? '#ffffff' : '#3b3b3b',
-                }}>
-                  <span style={{ fontWeight: 800, color: darkMode ? '#ffffff' : 'inherit' }}>Current mint cost:</span> <span style={{ color: darkMode ? '#ffffff' : '#3b3b3b', fontWeight: 700 }}>{mintingInfo?.currentCost} {costSymbol}</span> <span style={{ color: darkMode ? '#ffffff' : '#3b3b3b' }}>(next increase at {mintingInfo?.nextMintingStep} minted, {mintingInfo?.remainingAtCurrentCost} left at this cost)</span>
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: darkMode ? '#c7d0e0' : '#232946' }}>
-                  Amount to mint
-                </label>
-                <input
-                  type="text"
-                  value={amount}
-                  onChange={handleAmountChange}
-                  onBlur={handleAmountBlur}
-                  className={`w-full p-2 rounded border focus:ring-2 transition-all ${darkMode ? 'bg-[#232946] border-[#b0b8c9] text-white placeholder-gray-400 focus:ring-blue-200 focus:border-blue-300' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-indigo-400 focus:border-indigo-400'}`}
-                  placeholder="Enter amount"
-                  autoFocus
-                  style={{ fontWeight: 500, fontSize: '1.05rem' }}
-                />
-              </div>
-              {error && (
-                <div className="text-sm mt-1" style={{ color: darkMode ? (error === 'Loading balance...' ? '#ffe066' : '#ff6b6b') : (error === 'Loading balance...' ? '#b45309' : '#b91c1c'), background: darkMode ? (error === 'Loading balance...' ? '#3a3500' : '#2d1a1a') : (error === 'Loading balance...' ? '#fef3c7' : '#fee2e2'), borderRadius: 6, padding: '6px 10px' }}>{error}</div>
-              )}
-              {stepWarning && (
-                <div className="text-sm mt-1" style={{ color: darkMode ? '#ffe066' : '#b45309', background: darkMode ? '#3a3500' : '#fef3c7', borderRadius: 6, padding: '6px 10px' }}>
-                  {stepWarning}
-                </div>
-              )}
-              {gasWarning && (
-                <div className="text-sm mt-1" style={{ color: darkMode ? '#ffe066' : '#b45309', background: darkMode ? '#3a3500' : '#fef3c7', borderRadius: 6, padding: '6px 10px' }}>
-                  {gasWarning}
-                </div>
-              )}
-              <div
-                className="rounded text-sm mt-2"
-                style={{
-                  background: darkMode ? 'rgba(15,23,42,0.95)' : '#f1f5fa',
-                  color: darkMode ? '#ffffff' : '#232946',
-                  border: darkMode ? '1px solid #334155' : '1px solid #e2e8f0',
-                  padding: '10px 12px',
-                  fontWeight: 500,
-                }}
-              >
-                {/* Stepwise minting info always visible for EOE/BTB */}
-                {(token.symbol === 'EOE' || token.symbol === 'BTB') && (
-                  <div className="mb-2 text-xs font-semibold" style={{ 
-                    color: darkMode ? '#ffffff' : '#3b3b3b', 
-                    background: darkMode ? 'rgba(15,23,42,0.95)' : '#e6eaf2',
-                    borderRadius: 4, 
-                    padding: '6px 8px',
-                    boxShadow: darkMode ? '0 1px 3px rgba(0, 0, 0, 0.3)' : 'none'
-                  }}>
-                    <span style={{ color: darkMode ? '#ffffff' : 'inherit' }}>Mint cost goes up by 1 {costSymbol} every {token.symbol === 'EOE' ? '1,111 EOE' : '420 BTB'} minted.</span>
-                  </div>
-                )}
-                {/* Cost per token and breakdown logic for EOE/BTB */}
-                {(token.symbol === 'EOE' || token.symbol === 'BTB') ? (
-                  <>
-                    <div>
-                      {amount && !error && amountNum > 0 && totalMintCost.breakdown.length === 1 ? (
-                        <><span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Cost per token:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>{totalMintCost.breakdown[0].cost} {costSymbol}</span></>
-                      ) : amount && !error && amountNum > 0 ? (
-                        <>
-                          <span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Cost per token:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>Stepwise (see breakdown below)</span>
-                        </>
-                      ) : (
-                        <><span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Cost per token:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>-</span></>
-                      )}
-                    </div>
-                    <div><span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Total cost:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>{amount && !error && amountNum > 0 ? totalMintCost.totalCost : 0} {costSymbol}</span></div>
-                    {/* Always show breakdown if more than one tier is involved */}
-                    {amount && !error && totalMintCost.breakdown.length > 1 && (
-                      <div className="text-xs mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>
-                        <span style={{ fontWeight: 600, color: darkMode ? '#ffffff' : 'inherit' }}>Breakdown:</span> {totalMintCost.breakdown.map((b, i) => (
-                          <span key={i} style={{ display: 'inline-block', marginRight: 8, color: darkMode ? '#ffffff' : 'inherit' }}>{b.count} @ {b.cost} {costSymbol}</span>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                ) : null}
-                {/* For A1A/B2B, only show cost if amount entered */}
-                {(token.symbol === 'A1A' || token.symbol === 'B2B') && amount && !error && (
-                  <div><span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 600 }}>Total cost:</span> <span style={{ color: darkMode ? '#ffffff' : '#232946', fontWeight: 700 }}>{amountNum * (mintingInfo?.currentCost || 1)} {costSymbol}</span></div>
-                )}
-                {/* Show balance and allowance for EOE/BTB */}
-                {(token.symbol === 'EOE' || token.symbol === 'BTB') && (
-                  <div className="text-xs mt-2" style={{ color: darkMode ? '#c7d0e0' : '#6b7280' }}>
-                    Balance: {parentBalanceData?.formatted ? Number(parentBalanceData.formatted).toLocaleString(undefined, { maximumFractionDigits: 6 }) : '...'} {costSymbol}<br />
-                    Allowance: {(() => {
-                      // Format allowance: show 'Unlimited' if max uint256, else format with commas and 6 decimals
-                      if (allowance !== undefined) {
-                        const maxUint = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
-                        // Use strict equality for maxUint
-                        if (allowance === maxUint) return 'Unlimited';
-                        // Also treat any value above maxUint - 1 as unlimited (for safety)
-                        if (allowance >= maxUint - 1n) return 'Unlimited';
-                        const formatted = Number(ethers.formatUnits(allowance, parentToken.decimals || 18)).toLocaleString(undefined, { maximumFractionDigits: 6 });
-                        return formatted;
-                      }
-                      return '...';
-                    })()} {costSymbol}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setShowInput(false)}
-                className={`flex-1 px-4 py-2 rounded font-semibold transition-colors ${darkMode ? 'bg-[#232946] text-white hover:bg-[#181c24]' : 'bg-gray-200 text-gray-900 hover:bg-gray-300'}`}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleApproveAndMint}
-                disabled={!amount || !!error || isPending || isTxLoading}
-                className={`flex-1 px-4 py-2 rounded font-semibold transition-colors ${darkMode ? (!amount || !!error || isPending || isTxLoading ? 'bg-gray-600 text-gray-300' : 'bg-blue-700 text-white hover:bg-blue-800') : (!amount || !!error || isPending || isTxLoading ? 'bg-gray-400 text-gray-100' : 'bg-indigo-600 text-white hover:bg-indigo-700')}`}
-              >
-                {isPending || isTxLoading ? 
-                  (isPending ? 'Processing...' : 'Waiting for confirmation...') : 
-                  ((token.symbol === 'EOE' || token.symbol === 'BTB') && parentToken.address && 
-                   (allowance === undefined || allowance === 0n || 
-                    (totalMintCost && allowance < ethers.parseUnits(totalMintCost.totalCost.toString(), parentToken.decimals || 18))) ? 
-                    'Approve & Mint' : 'Mint')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// function calculateTotalMintCost({
+//   totalSupply,
+//   amount,
+//   step,
+//   initialSupply = 0,
+//   baseCost = 2,
+// }: {
+//   totalSupply: number;
+//   amount: number;
+//   step: number;
+//   initialSupply?: number;
+//   baseCost?: number;
+// }): { totalCost: number; breakdown: Array<{ count: number; cost: number }> } {
+//   let remaining = amount;
+//   let supply = Math.floor(totalSupply);
+//   let totalCost = 0;
+//   let breakdown: Array<{ count: number; cost: number }> = [];
+//   // If supply is less than initialSupply, fill up to initialSupply at baseCost
+//   if (supply < initialSupply) {
+//     const atBase = Math.min(initialSupply - supply, remaining);
+//     if (atBase > 0) {
+//       totalCost += atBase * baseCost;
+//       breakdown.push({ count: atBase, cost: baseCost });
+//       remaining -= atBase;
+//       supply += atBase;
+//     }
+//   }
+//   // Now, for each step, increment cost by 1 per step
+//   while (remaining > 0) {
+//     const mintedAfterInitial = Math.max(0, supply - initialSupply);
+//     const currentStep = Math.floor(mintedAfterInitial / step);
+//     const currentCost = baseCost + currentStep;
+//     // How many tokens can be minted at this cost before next step?
+//     const nextStepSupply = initialSupply + (currentStep + 1) * step;
+//     const tokensAtThisCost = Math.min(remaining, nextStepSupply - supply);
+//     if (tokensAtThisCost <= 0) break;
+//     totalCost += tokensAtThisCost * currentCost;
+//     breakdown.push({ count: tokensAtThisCost, cost: currentCost });
+//     remaining -= tokensAtThisCost;
+//     supply += tokensAtThisCost;
+//   }
+//   return { totalCost, breakdown };
+// }
 
 // --- Main Dashboard Content ---
 const AppContent = memo(function AppContent() {
@@ -1078,6 +481,41 @@ const MemoizedRainbowKitProvider = memo(function MemoizedRainbowKitProvider({ ch
 });
 
 function App() {
+  // Runtime check for WalletConnect Project ID
+  const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
+  if (!walletConnectProjectId) {
+    // Show a clear error if the env variable is missing
+    const missingEnvStyle: React.CSSProperties = {
+      minHeight: '100vh',
+      background: '#181c24',
+      color: '#fff',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: 'sans-serif',
+      padding: 32,
+      textAlign: 'center',
+    };
+    return (
+      <div style={missingEnvStyle}>
+        <h1 style={{ fontSize: 32, marginBottom: 16 }}>Configuration Error</h1>
+        <p style={{ fontSize: 18, marginBottom: 16 }}>
+          <strong>VITE_WALLETCONNECT_PROJECT_ID</strong> is missing.<br />
+          The app cannot connect to WalletConnect without this environment variable.
+        </p>
+        <ol style={{ textAlign: 'left', maxWidth: 480, margin: '0 auto', fontSize: 16, background: '#232946', padding: 20, borderRadius: 8 }}>
+          <li>1. Go to <a href="https://cloud.walletconnect.com/sign-in" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>WalletConnect Cloud</a> and sign in.</li>
+          <li>2. Create a new project and copy your <b>Project ID</b>.</li>
+          <li>3. Add this line to your <code>.env</code> file:<br /><code style={{ background: '#181c24', padding: '2px 6px', borderRadius: 4 }}>VITE_WALLETCONNECT_PROJECT_ID=your_project_id_here</code></li>
+          <li>4. If deploying to Vercel, add the same variable in your Vercel project settings under <b>Environment Variables</b>.</li>
+          <li>5. Restart your dev server or redeploy the app.</li>
+        </ol>
+        <p style={{ marginTop: 24, color: '#fbbf24' }}>After setting the variable, reload this page.</p>
+      </div>
+    );
+  }
+
   return (
     <MemoizedRainbowKitProvider>
       <AppContent />
@@ -1085,50 +523,4 @@ function App() {
   );
 }
 
-// Calculates the total mint cost for a given amount, considering stepwise cost increases
-function calculateTotalMintCost({
-  totalSupply,
-  amount,
-  step,
-  initialSupply = 0,
-  baseCost = 2,
-}: {
-  totalSupply: number;
-  amount: number;
-  step: number;
-  initialSupply?: number;
-  baseCost?: number;
-}): { totalCost: number; breakdown: Array<{ count: number; cost: number }> } {
-  let remaining = amount;
-  let supply = Math.floor(totalSupply);
-  let totalCost = 0;
-  let breakdown: Array<{ count: number; cost: number }> = [];
-  // If supply is less than initialSupply, fill up to initialSupply at baseCost
-  if (supply < initialSupply) {
-    const atBase = Math.min(initialSupply - supply, remaining);
-    if (atBase > 0) {
-      totalCost += atBase * baseCost;
-      breakdown.push({ count: atBase, cost: baseCost });
-      remaining -= atBase;
-      supply += atBase;
-    }
-  }
-  // Now, for each step, increment cost by 1 per step
-  while (remaining > 0) {
-    const mintedAfterInitial = Math.max(0, supply - initialSupply);
-    const currentStep = Math.floor(mintedAfterInitial / step);
-    const currentCost = baseCost + currentStep;
-    // How many tokens can be minted at this cost before next step?
-    const nextStepSupply = initialSupply + (currentStep + 1) * step;
-    const tokensAtThisCost = Math.min(remaining, nextStepSupply - supply);
-    if (tokensAtThisCost <= 0) break;
-    totalCost += tokensAtThisCost * currentCost;
-    breakdown.push({ count: tokensAtThisCost, cost: currentCost });
-    remaining -= tokensAtThisCost;
-    supply += tokensAtThisCost;
-  }
-  return { totalCost, breakdown };
-}
-
-export { MintButton, getMintingInfo, calculateTotalMintCost, checkMintingProfitability, queryClient };
 export default App;

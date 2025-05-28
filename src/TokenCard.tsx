@@ -1,6 +1,6 @@
 import React from 'react';
-import { MintButton } from './App'; // Use named import for MintButton
 import { TOKENS } from './constants/tokens';
+import MintButton from './components/MintButton';
 
 interface MintingInfo {
   currentCost?: number;
@@ -83,17 +83,17 @@ const TokenCard: React.FC<TokenCardProps> = ({
       <div className="flex items-center justify-between mb-2">
         <h2 className={`text-2xl font-bold ${color}`}>{title}</h2>
       </div>
-      <div className="text-black mb-2">
+      <div className="mb-2" style={{ color: darkMode ? '#f3f6fa' : '#1a202c' }}>
         <span className="font-semibold">Name:</span> {tokenData.name}
       </div>
-      <div className="text-black mb-2">
+      <div className="mb-2" style={{ color: darkMode ? '#f3f6fa' : '#1a202c' }}>
         <span className="font-semibold">Symbol:</span> {tokenData.symbol}
       </div>
-      <div className="text-black mb-2">
+      <div className="mb-2" style={{ color: darkMode ? '#f3f6fa' : '#1a202c' }}>
         <span className="font-semibold">Total Supply:</span> {tokenData.totalSupply ? Number(tokenData.totalSupply).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '...'}
       </div>
       {/* Live Price Display with loading/error states */}
-      <div className="text-black mb-2">
+      <div className="mb-2" style={{ color: darkMode ? '#f3f6fa' : '#1a202c' }}>
         <span className="font-semibold">Live Price:</span>{' '}
         {loadingState === 'loading' ? (
           <span className="text-gray-500 font-bold">Loading...</span>
@@ -116,12 +116,29 @@ const TokenCard: React.FC<TokenCardProps> = ({
         </div>
       </details>
       {isChildToken && (
-        <div className="bg-gray-50 rounded p-2 border border-gray-300 mb-2">
-          <div className="font-bold">Current Mint Cost:</div>
-          <div className="text-2xl mt-1">
+        <div style={{ 
+            background: darkMode ? 'rgba(15,23,42,0.95)' : '#f9fafb',
+            borderRadius: '0.25rem',
+            padding: '0.5rem',
+            borderWidth: '1px',
+            borderStyle: 'solid',
+            borderColor: darkMode ? '#334155' : '#d1d5db', 
+            marginBottom: '0.5rem'
+          }}>
+          <div style={{ 
+            fontWeight: 'bold', 
+            color: darkMode ? '#ffffff' : 'inherit' 
+          }}>Current Mint Cost:</div>
+          <div style={{ 
+            fontSize: '1.5rem',
+            lineHeight: '2rem',
+            marginTop: '0.25rem',
+            color: darkMode ? '#ffffff' : 'inherit',
+            fontWeight: '600'
+          }}>
             {typeof mintingInfo?.currentCost === 'number' && mintingInfo.currentCost >= 2
               ? `${mintingInfo.currentCost} ${tokenData.symbol === 'EOE' ? 'A1A' : 'B2B'}`
-              : <span className="text-red-500 font-bold">Live supply unavailable. Please try again later.</span>}
+              : <span style={{ color: darkMode ? '#f87171' : '#ef4444', fontWeight: 'bold' }}>Live supply unavailable. Please try again later.</span>}
           </div>
           {/* Profitability badge placeholder - you can add logic to show/hide based on live price data */}
           {mintingInfo?.profitability !== undefined && (
@@ -132,9 +149,9 @@ const TokenCard: React.FC<TokenCardProps> = ({
           {/* Always show Mint Button for EOE/BTB */}
           <div className="mt-4">
             {tokenData.symbol === 'EOE' ? (
-              <MintButton token={tokenData} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" />
+              <MintButton token={tokenData} label={`Mint EOE`} parentToken={TOKENS.A1A} parentSymbol="A1A" darkMode={darkMode} />
             ) : tokenData.symbol === 'BTB' ? (
-              <MintButton token={tokenData} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" />
+              <MintButton token={tokenData} label={`Mint BTB`} parentToken={TOKENS.B2B} parentSymbol="B2B" darkMode={darkMode} />
             ) : null}
           </div>
           {mintingInfo?.debug && (

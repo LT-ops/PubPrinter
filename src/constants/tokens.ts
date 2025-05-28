@@ -1,4 +1,4 @@
-const ehoneehAbi = [
+export const ehoneehAbi = [
   {"name":"name","type":"function","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"payable":null,"constant":null,"selector":"0x06fdde03","signature":"name()","stateMutability":"view"},
   {"name":"approve","type":"function","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"amount","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"payable":null,"constant":null,"selector":"0x095ea7b3","signature":"approve(address,uint256)","stateMutability":"nonpayable"},
   {"name":"ha","type":"function","inputs":[],"outputs":[{"name":"","type":"address","internalType":"address"}],"payable":null,"constant":null,"selector":"0x0a504439","signature":"ha()","stateMutability":"view"},
